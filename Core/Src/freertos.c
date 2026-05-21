@@ -127,6 +127,7 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
+  (void)argument;
   /* Infinite loop */
   for(;;)
   {
@@ -147,13 +148,14 @@ void StartDefaultTask(void *argument)
       float vol_mq135_1 = MQ_Get_Voltage(MQ135_1_CH);
       float vol_mq135_2 = MQ_Get_Voltage(MQ135_2_CH);
 
-      float conc_mq3   = MQ3_Get_mgL(vol_mq3_1);
-      float conc_mq135 = MQ135_Get_PPM(vol_mq135_1);
-
+      float conc_mq3_1   = MQ3_Get_mgL(vol_mq3_1);
+      float conc_mq3_2 = MQ3_Get_mgL(vol_mq3_2);
+      float conc_mq135_1 = MQ135_Get_PPM(vol_mq135_1);
+      float conc_mq135_2 = MQ135_Get_PPM(vol_mq135_2);
       // 4. 打印数据
-      printf("Temp: %.2f C | MQ3: %.2f mg/L (%.2f V) | MQ135: %.2f PPM (%.2f V)\r\n", 
-        temp, conc_mq3, vol_mq3_1, conc_mq135, vol_mq135_1);
-
+      printf("Temp: %.2f C ||| MQ3_1: %.2f mg/L (%.2f V) | MQ3_2: %.2f mg/L (%.2f V)||| MQ135_1: %.2f PPM (%.2f V) | MQ135_2: %.2f PPM (%.2f V)\r\n", 
+        temp, conc_mq3_1, vol_mq3_1, conc_mq3_2, vol_mq3_2, conc_mq135_1, vol_mq135_1, conc_mq135_2, vol_mq135_2);
+      
       // 5. RTOS 专属休眠，等 1000 毫秒
       osDelay(1000);
 
@@ -173,6 +175,7 @@ void StartDefaultTask(void *argument)
 void StartTask02(void *argument)
 {
   /* USER CODE BEGIN StartTask02 */
+  (void)argument;
   /* Infinite loop */
   for(;;)
   {

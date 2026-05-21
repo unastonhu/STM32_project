@@ -1,5 +1,5 @@
 #include "ds18b20.h"
-//#include <assert.h>
+#include "cmsis_os2.h"  
 
 #define DQ_OUT(x) HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, x ? GPIO_PIN_SET : GPIO_PIN_RESET)
 #define DQ_IN() HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_8)
@@ -19,18 +19,17 @@ static void DS18B20_WriteByte(uint8_t data)
 {
     for (uint8_t i = 0; i < 8; i++)
     {
+        uint32_t primask = __get_PRIMASK(); // 备份当前中断状态
+        __disable_irq();                    // 【关全局中断】谁也不许打扰我！
+
         DQ_OUT(0);         // 拉低总线
         delay_us(2);
-        
-        if (data & 0x01) {
-            DQ_OUT(1);     // 写 1：释放总线
-        } else {
-            DQ_OUT(0);     // 写 0：保持低电平
-        }
+        if (data & 0x01) DQ_OUT(1); else DQ_OUT(0);
         delay_us(60);      
-        
         DQ_OUT(1);         // 释放总线
         delay_us(2);
+
+        __set_PRIMASK(primask);             // 【开全局中断】我完事了，你们继续
         data >>= 1;        
     }
 }
@@ -43,16 +42,17 @@ static uint8_t DS18B20_ReadByte(void)
     {
         data >>= 1;
         
+        uint32_t primask = __get_PRIMASK(); // 备份中断状态
+        __disable_irq();                    // 【关中断】
+
         DQ_OUT(0);         // 拉低总线
         delay_us(2);
         DQ_OUT(1);         // 释放总线
         delay_us(12);      
-        
-        if (DQ_IN()) 
-        {     // 读取总线状态
-            data |= 0x80;  
-        }
+        if (DQ_IN()) data |= 0x80;  
         delay_us(50);      
+
+        __set_PRIMASK(primask);             // 【开中断】
     }
     return data;
 }
@@ -86,7 +86,7 @@ float DS18B20_GetTemp(void)
     DS18B20_WriteByte(0xCC); // 跳过 ROM
     DS18B20_WriteByte(0x44); // 开始温度转换
 
-    HAL_Delay(750);          // DS18B20 转换时间
+    osDelay(750);          // DS18B20 转换时间
 
     DS18B20_Init();          
     DS18B20_WriteByte(0xCC); 
@@ -98,3 +98,4 @@ float DS18B20_GetTemp(void)
     temp_raw = (MSB << 8) | LSB;      
     return temp_raw * 0.0625f;        
 }
+

@@ -17,12 +17,20 @@
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
+
 #include "main.h"
 #include "cmsis_os.h"
+#include "adc.h"
+#include "dma.h"
+#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+#include <stdio.h>
+#include "ds18b20.h"
+#include "mq_sensor.h"
 
 /* USER CODE END Includes */
 
@@ -57,6 +65,20 @@ void MX_FREERTOS_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+// printf 重定向代码 (把标准输出定向到 huart1)
+#ifdef __GNUC__
+#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+#else
+#define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
+#endif
+
+PUTCHAR_PROTOTYPE
+{
+    // 将数据通过 USART1 发送给电脑
+    HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+    return ch;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -88,6 +110,9 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_ADC1_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */

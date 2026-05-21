@@ -25,7 +25,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "ds18b20.h"
+#include "mq_sensor.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -54,6 +56,13 @@ const osThreadAttr_t defaultTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for LEDTask */
+osThreadId_t LEDTaskHandle;
+const osThreadAttr_t LEDTask_attributes = {
+  .name = "LEDTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -61,6 +70,7 @@ const osThreadAttr_t defaultTask_attributes = {
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
+void StartTask02(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -94,6 +104,9 @@ void MX_FREERTOS_Init(void) {
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
+  /* creation of LEDTask */
+  LEDTaskHandle = osThreadNew(StartTask02, NULL, &LEDTask_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -117,25 +130,63 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
+    
+  //================================================================================
+  // 1. 在任务一开始，启动 ADC DMA 搬运工
+  MQ_Init();
 
+  /* Infinite loop */
+  for(;;)
+  {
+      // 2. 读取温度 (此时 DS18B20 里面的 osDelay 会让出 CPU，非常健康！)
+      float temp = DS18B20_GetTemp();
 
-    // 让 LED1 亮（低电平），LED2 灭（高电平）
-    HAL_GPIO_WritePin(GPIOA,GPIO_PIN_6, GPIO_PIN_RESET); 
-    HAL_GPIO_WritePin(GPIOA,GPIO_PIN_7, GPIO_PIN_SET);   
-    osDelay(500); // 延时 500毫秒
+      // 3. 直接从 DMA 数组里拿 4 个气体的电压，瞬间完成！
+      float vol_mq3_1   = MQ_Get_Voltage(MQ3_1_CH);
+      float vol_mq3_2   = MQ_Get_Voltage(MQ3_2_CH);
+      float vol_mq135_1 = MQ_Get_Voltage(MQ135_1_CH);
+      float vol_mq135_2 = MQ_Get_Voltage(MQ135_2_CH);
 
-    // 让 LED1 灭（高电平），LED2 亮（低电平）
-    HAL_GPIO_WritePin(GPIOA,GPIO_PIN_6, GPIO_PIN_SET);   
-    HAL_GPIO_WritePin(GPIOA,GPIO_PIN_7, GPIO_PIN_RESET); 
-    osDelay(500); // 延时 500毫秒
+      float conc_mq3   = MQ3_Get_mgL(vol_mq3_1);
+      float conc_mq135 = MQ135_Get_PPM(vol_mq135_1);
 
+      // 4. 打印数据
+      printf("Temp: %.2f C | MQ3: %.2f mg/L (%.2f V) | MQ135: %.2f PPM (%.2f V)\r\n", 
+        temp, conc_mq3, vol_mq3_1, conc_mq135, vol_mq135_1);
 
+      // 5. RTOS 专属休眠，等 1000 毫秒
+      osDelay(1000);
 
-
-
-    //osDelay(1);
+    
   }
   /* USER CODE END StartDefaultTask */
+}
+}
+
+/* USER CODE BEGIN Header_StartTask02 */
+/**
+* @brief Function implementing the LEDTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask02 */
+void StartTask02(void *argument)
+{
+  /* USER CODE BEGIN StartTask02 */
+  /* Infinite loop */
+  for(;;)
+  {
+    // 让 LED1 亮，LED2 灭
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+      osDelay(500); // 延时 500 毫秒，交出 CPU
+
+      // 让 LED1 灭，LED2 亮
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
+      osDelay(500); // 延时 500 毫秒，交出 CPU
+  }
+  /* USER CODE END StartTask02 */
 }
 
 /* Private application code --------------------------------------------------*/

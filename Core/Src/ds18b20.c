@@ -98,4 +98,3 @@ float DS18B20_GetTemp(void)
     temp_raw = (MSB << 8) | LSB;      
     return temp_raw * 0.0625f;        
 }
-

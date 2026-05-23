@@ -17,11 +17,11 @@
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
-
 #include "main.h"
 #include "cmsis_os.h"
 #include "adc.h"
 #include "dma.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include "ds18b20.h"
 #include "mq_sensor.h"
+#include "hcsr04.h"
 
 /* USER CODE END Includes */
 
@@ -113,6 +114,7 @@ int main(void)
   MX_DMA_Init();
   MX_ADC1_Init();
   MX_USART1_UART_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -187,6 +189,16 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
+
+// 定时器捕获回调
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
+    HCSR04_CaptureCallback(htim);
+}
+
+
+
+
+
 /* USER CODE END 4 */
 
 /**
@@ -207,6 +219,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
+
+  //  在这里咱们超声波的溢出回调代码！
+  HCSR04_TmrOverflowCallback(htim);
 
   /* USER CODE END Callback 1 */
 }

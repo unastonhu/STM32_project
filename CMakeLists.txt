@@ -39,8 +39,8 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/main.c
     Core/Src/ds18b20.c
     Core/Src/mq_sensor.c
-
-    )
+    Core/Src/hcsr04.c
+)
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
@@ -74,5 +74,5 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 #-------------------------------------------------------------------------------
 # 开启 printf 的浮点数(float)打印功能
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -u _printf_float)
-# 强制链接 C 语言标准数学库 (-lm)
+# 强制链接 C 语言标准数学库 (lm)
 target_link_libraries(${CMAKE_PROJECT_NAME}  m)

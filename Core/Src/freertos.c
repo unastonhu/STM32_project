@@ -25,9 +25,13 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+#include <stdio.h>
+
 #include "ds18b20.h"
 #include "mq_sensor.h"
-#include <stdio.h>
+#include "hcsr04.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,6 +52,8 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 
+extern TIM_HandleTypeDef htim4;
+
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -63,6 +69,13 @@ const osThreadAttr_t LEDTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for SonarTask */
+osThreadId_t SonarTaskHandle;
+const osThreadAttr_t SonarTask_attributes = {
+  .name = "SonarTask",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -71,6 +84,7 @@ const osThreadAttr_t LEDTask_attributes = {
 
 void StartDefaultTask(void *argument);
 void StartTask02(void *argument);
+void StartTask03(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -107,6 +121,9 @@ void MX_FREERTOS_Init(void) {
   /* creation of LEDTask */
   LEDTaskHandle = osThreadNew(StartTask02, NULL, &LEDTask_attributes);
 
+  /* creation of SonarTask */
+  SonarTaskHandle = osThreadNew(StartTask03, NULL, &SonarTask_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -135,7 +152,7 @@ void StartDefaultTask(void *argument)
   //================================================================================
   // 1. 在任务一开始，启动 ADC DMA 搬运工
   MQ_Init();
-
+  
   /* Infinite loop */
   for(;;)
   {
@@ -156,13 +173,12 @@ void StartDefaultTask(void *argument)
       printf("Temp: %.2f C ||| MQ3_1: %.2f mg/L (%.2f V) | MQ3_2: %.2f mg/L (%.2f V)||| MQ135_1: %.2f PPM (%.2f V) | MQ135_2: %.2f PPM (%.2f V)\r\n", 
         temp, conc_mq3_1, vol_mq3_1, conc_mq3_2, vol_mq3_2, conc_mq135_1, vol_mq135_1, conc_mq135_2, vol_mq135_2);
       
-      // 5. RTOS 专属休眠，等 1000 毫秒
-      osDelay(1000);
+      // 5. RTOS 专属休眠
+      osDelay(5000);
 
     
-  }
+  }}
   /* USER CODE END StartDefaultTask */
-}
 }
 
 /* USER CODE BEGIN Header_StartTask02 */
@@ -190,6 +206,44 @@ void StartTask02(void *argument)
       osDelay(500); // 延时 500 毫秒，交出 CPU
   }
   /* USER CODE END StartTask02 */
+}
+
+/* USER CODE BEGIN Header_StartTask03 */
+/**
+* @brief Function implementing the SonarTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask03 */
+void StartTask03(void *argument)
+{
+  /* USER CODE BEGIN StartTask03 */
+  (void)argument;
+
+  HCSR04_Init(&htim4, TIM_CHANNEL_1); // 先把定时器句柄和通道传给超声波模块
+
+  /* Infinite loop */
+  for(;;)
+  {
+
+    // 2. 触发超声波测距 (绑定 PB5)
+    HCSR04_StartTrigger(GPIOB, GPIO_PIN_5);
+    
+    // 3. 等待声波返回 (强制等 60ms)
+    osDelay(60); 
+    
+    // 4. 获取距离并打印
+    float distance = HCSR04_GetDistance();
+    if(distance > 0.0f)
+    {
+       printf("[Sonar] Dist: %.2f cm\r\n", distance);
+    }
+
+    // 5. 休息一下，开启下一次测距
+    osDelay(2500);
+
+  }
+  /* USER CODE END StartTask03 */
 }
 
 /* Private application code --------------------------------------------------*/

@@ -19,6 +19,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "FreeRTOS.h"
+#include "cmsis_os2.h"
 #include "task.h"
 #include "main.h"
 #include "cmsis_os.h"
@@ -36,10 +37,24 @@
 #include "hx711.h"
 #include "dht11.h"
 
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+typedef struct {
+    float   weight;        // 重量 (g)
+    uint8_t dht11_hum;       // DHT11 湿度 (%)
+    uint8_t dht11_temp;      // DHT11 温度 (C)
+    int8_t  dht_status;    // DHT11 状态码 (用于排错)
+    float   ds18b20_temp;  // DS18B20 温度 (C)
+    float   mq3_1, mq3_2,V_mq3_1,V_mq3_2;  // 酒精浓度
+    float   mq135_1, mq135_2,V_mq135_1,V_mq135_2; // 空气质量
+} SystemData_t;
+
+// 实例化这块黑板（全局变量）
+SystemData_t sysData = {0};
 
 /* USER CODE END PTD */
 
@@ -66,24 +81,24 @@ extern TIM_HandleTypeDef htim4;
 
 
 /* USER CODE END Variables */
-/* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
+/* Definitions for Task_Monitor */
+osThreadId_t Task_MonitorHandle;
+const osThreadAttr_t Task_Monitor_attributes = {
+  .name = "Task_Monitor",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for Task_LED */
+osThreadId_t Task_LEDHandle;
+const osThreadAttr_t Task_LED_attributes = {
+  .name = "Task_LED",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
-/* Definitions for LEDTask */
-osThreadId_t LEDTaskHandle;
-const osThreadAttr_t LEDTask_attributes = {
-  .name = "LEDTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
-/* Definitions for SonarTask */
-osThreadId_t SonarTaskHandle;
-const osThreadAttr_t SonarTask_attributes = {
-  .name = "SonarTask",
+/* Definitions for Task_Sonar */
+osThreadId_t Task_SonarHandle;
+const osThreadAttr_t Task_Sonar_attributes = {
+  .name = "Task_Sonar",
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
@@ -101,17 +116,25 @@ const osThreadAttr_t Task_Humidity_attributes = {
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
+/* Definitions for Task_Temp */
+osThreadId_t Task_TempHandle;
+const osThreadAttr_t Task_Temp_attributes = {
+  .name = "Task_Temp",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityBelowNormal,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 
 /* USER CODE END FunctionPrototypes */
 
-void StartDefaultTask(void *argument);
-void StartTask02(void *argument);
-void StartTask03(void *argument);
+void StartMonitorTask(void *argument);
+void StartLEDTask(void *argument);
+void StartSonarTask(void *argument);
 void StartWeightTask(void *argument);
 void StartHumidityTask(void *argument);
+void StartTempTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -142,20 +165,23 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  /* creation of Task_Monitor */
+  Task_MonitorHandle = osThreadNew(StartMonitorTask, NULL, &Task_Monitor_attributes);
 
-  /* creation of LEDTask */
-  LEDTaskHandle = osThreadNew(StartTask02, NULL, &LEDTask_attributes);
+  /* creation of Task_LED */
+  Task_LEDHandle = osThreadNew(StartLEDTask, NULL, &Task_LED_attributes);
 
-  /* creation of SonarTask */
-  SonarTaskHandle = osThreadNew(StartTask03, NULL, &SonarTask_attributes);
+  /* creation of Task_Sonar */
+  Task_SonarHandle = osThreadNew(StartSonarTask, NULL, &Task_Sonar_attributes);
 
   /* creation of Task_Weight */
   Task_WeightHandle = osThreadNew(StartWeightTask, NULL, &Task_Weight_attributes);
 
   /* creation of Task_Humidity */
   Task_HumidityHandle = osThreadNew(StartHumidityTask, NULL, &Task_Humidity_attributes);
+
+  /* creation of Task_Temp */
+  Task_TempHandle = osThreadNew(StartTempTask, NULL, &Task_Temp_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -167,69 +193,59 @@ void MX_FREERTOS_Init(void) {
 
 }
 
-/* USER CODE BEGIN Header_StartDefaultTask */
+/* USER CODE BEGIN Header_StartMonitorTask */
 /**
-  * @brief  Function implementing the defaultTask thread.
+  * @brief  Function implementing the Task_Monitor thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
+/* USER CODE END Header_StartMonitorTask */
+void StartMonitorTask(void *argument)
 {
-  /* USER CODE BEGIN StartDefaultTask */
+  /* USER CODE BEGIN StartMonitorTask */
   (void)argument;
   /* Infinite loop */
   for(;;)
   {
+
+    osDelay(5000);
+
+
+          printf("\r\n============================ SYSTEM STATUS ====================================\r\n");
     
-  //================================================================================
-  // 1. 在任务一开始，启动 ADC DMA 搬运工
-  MQ_Init();
-  
-  /* Infinite loop */
-  for(;;)
-  {
-      // 2. 读取温度 (此时 DS18B20 里面的 osDelay 会让出 CPU，非常健康！)
-    osDelay(1000);
-
-      float temp = DS18B20_GetTemp();
-
-      // 3. 直接从 DMA 数组里拿 4 个气体的电压，瞬间完成！
-      float vol_mq3_1   = MQ_Get_Voltage(MQ3_1_CH);
-      float vol_mq3_2   = MQ_Get_Voltage(MQ3_2_CH);
-      float vol_mq135_1 = MQ_Get_Voltage(MQ135_1_CH);
-      float vol_mq135_2 = MQ_Get_Voltage(MQ135_2_CH);
-
-      float conc_mq3_1   = MQ3_Get_mgL(vol_mq3_1);
-      float conc_mq3_2 = MQ3_Get_mgL(vol_mq3_2);
-      float conc_mq135_1 = MQ135_Get_PPM(vol_mq135_1);
-      float conc_mq135_2 = MQ135_Get_PPM(vol_mq135_2);
-      // 4. 打印数据
-      printf("Temp: %.2f C ||| MQ3_1: %.2f mg/L (%.2f V) | MQ3_2: %.2f mg/L (%.2f V)||| MQ135_1: %.2f PPM (%.2f V) | MQ135_2: %.2f PPM (%.2f V)\r\n", 
-        temp, conc_mq3_1, vol_mq3_1, conc_mq3_2, vol_mq3_2, conc_mq135_1, vol_mq135_1, conc_mq135_2, vol_mq135_2);
-      
-      // 5. RTOS 专属休眠
-      osDelay(5000);
-
+          printf("[  HX711  ] Weight : %.1f g\r\n", sysData.weight);
     
-  }}
-  /* USER CODE END StartDefaultTask */
+    if(sysData.dht_status == 1) {
+          printf("[  DHT11  ]  Temp  : %d C  | Hum: %d %%\r\n", sysData.dht11_temp, sysData.dht11_hum);
+    } else {
+          printf("[  DHT11  ] Error Code: %d\r\n", sysData.dht_status);
+    }
+    
+          printf("[ DS18B20 ]  Temp  : %.2f C\r\n", sysData.ds18b20_temp);
+          printf("[   MQ    ]   MQ3  :  MQ3_1  : %.2f mg/L (%.2f V)  |  MQ3_2  :  %.2f mg/L (%.2f V)\r\n",sysData.mq3_1,sysData.V_mq3_1 ,sysData.mq3_2,sysData.V_mq3_2);
+          printf("[   MQ    ]   MQ3  :  MQ135_1: %.2f mg/L (%.2f V)  |  MQ135_2:  %.2f mg/L (%.2f V)\r\n",sysData.mq135_1, sysData.V_mq135_1, sysData.mq135_2, sysData.V_mq135_2);
+
+           printf("====================================================================================\r\n");
+
+  }
+  /* USER CODE END StartMonitorTask */
 }
 
-/* USER CODE BEGIN Header_StartTask02 */
+/* USER CODE BEGIN Header_StartLEDTask */
 /**
-* @brief Function implementing the LEDTask thread.
+* @brief Function implementing the Task_LED thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartTask02 */
-void StartTask02(void *argument)
+/* USER CODE END Header_StartLEDTask */
+void StartLEDTask(void *argument)
 {
-  /* USER CODE BEGIN StartTask02 */
+  /* USER CODE BEGIN StartLEDTask */
   (void)argument;
   /* Infinite loop */
   for(;;)
   {
+    // 这个任务的唯一职责就是让两个 LED 灯交替闪烁，表示系统正在运行中
     // 让 LED1 亮，LED2 灭
       HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
       HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
@@ -239,28 +255,29 @@ void StartTask02(void *argument)
       HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
       HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
       osDelay(500); // 延时 500 毫秒，交出 CPU
+
   }
-  /* USER CODE END StartTask02 */
+  /* USER CODE END StartLEDTask */
 }
 
-/* USER CODE BEGIN Header_StartTask03 */
+/* USER CODE BEGIN Header_StartSonarTask */
 /**
-* @brief Function implementing the SonarTask thread.
+* @brief Function implementing the Task_Sonar thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartTask03 */
-void StartTask03(void *argument)
+/* USER CODE END Header_StartSonarTask */
+void StartSonarTask(void *argument)
 {
-  /* USER CODE BEGIN StartTask03 */
+  /* USER CODE BEGIN StartSonarTask */
   (void)argument;
+  /* Infinite loop */
 
   HCSR04_Init(&htim4, TIM_CHANNEL_1); // 先把定时器句柄和通道传给超声波模块
-
-  /* Infinite loop */
   for(;;)
   {
-    osDelay(2000);
+    
+     
     // 2. 触发超声波测距 (绑定 PB5)
     HCSR04_StartTrigger(GPIOB, GPIO_PIN_5);
     
@@ -271,14 +288,18 @@ void StartTask03(void *argument)
     float distance = HCSR04_GetDistance();
     if(distance > 0.0f)
     {
-       printf("[Sonar] Dist: %.2f cm\r\n", distance);
+        printf("[ HC-SR04 ] Distance : %.1f cm\r\n", distance);
+    }
+    else
+    {
+        printf("[Sonar Task] Measurement Error\r\n");
     }
 
     // 5. 休息一下，开启下一次测距
-    osDelay(5000);
+    osDelay(1000);
 
   }
-  /* USER CODE END StartTask03 */
+  /* USER CODE END StartSonarTask */
 }
 
 /* USER CODE BEGIN Header_StartWeightTask */
@@ -298,20 +319,18 @@ void StartWeightTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(3000);
+    osDelay(1000);
+
     // 2. 核心换算并获取重量（克）
     float weight = HX711_GetWeight();
     
     // 3. 打印称重结果
-    printf("[Weight Task] Real Weight: %.1f g\r\n", weight);
+    weight = (weight < 0.0f) ? 0.0f : weight; // 过滤负数抖动
+    sysData.weight = weight; // 更新全局黑板数据，供监视器任务读取
 
     // 4. 重量不需要太频繁刷新，500ms 称一次，体验最好且省 CPU
     osDelay(5000);
 
-
-
-
-    
   }
   /* USER CODE END StartWeightTask */
 }
@@ -340,12 +359,15 @@ void StartHumidityTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
+    osDelay(500); // 先等一会，给系统和传感器腾出时间
 
    int8_t status = DHT11_Read_Data(&hum, &temp_dht);
     
     if(status == 1)
     {
-        printf("[DHT11 Task] Hum: %d %%, Temp: %d C\r\n", hum, temp_dht);
+        sysData.dht11_hum = hum;
+        sysData.dht11_temp = temp_dht;
+        sysData.dht_status = 1; // 成功读取
     }
     else
     {
@@ -354,11 +376,52 @@ void StartHumidityTask(void *argument)
     }
 
     // 手册规定两次读取必须间隔 1 秒以上
-    osDelay(4000);
+    osDelay(5000);
     
 
   }
   /* USER CODE END StartHumidityTask */
+}
+
+/* USER CODE BEGIN Header_StartTempTask */
+/**
+* @brief Function implementing the Task_Temp thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTempTask */
+void StartTempTask(void *argument)
+{
+  /* USER CODE BEGIN StartTempTask */
+  (void)argument;
+  MQ_Init();
+  /* Infinite loop */
+  for(;;)
+  {
+    
+          // 2. 读取温度 (此时 DS18B20 里面的 osDelay 会让出 CPU，非常健康！)
+    osDelay(2000);
+
+      sysData.ds18b20_temp = DS18B20_GetTemp();
+
+      // 3. 直接从 DMA 数组里拿 4 个气体的电压，瞬间完成！
+      sysData.V_mq3_1   = MQ_Get_Voltage(MQ3_1_CH);
+      sysData.V_mq3_2   = MQ_Get_Voltage(MQ3_2_CH);
+      sysData.V_mq135_1 = MQ_Get_Voltage(MQ135_1_CH);
+      sysData.V_mq135_2 = MQ_Get_Voltage(MQ135_2_CH);
+
+      sysData.mq3_1   = MQ3_Get_mgL(sysData.V_mq3_1);
+      sysData.mq3_2 = MQ3_Get_mgL(sysData.V_mq3_2);
+      sysData.mq135_1 = MQ135_Get_PPM(sysData.V_mq135_1);
+      sysData.mq135_2 = MQ135_Get_PPM(sysData.V_mq135_2);
+      // 4. 打印数据
+    
+
+      // 5. RTOS 专属休眠
+      osDelay(5000);
+
+  }
+  /* USER CODE END StartTempTask */
 }
 
 /* Private application code --------------------------------------------------*/

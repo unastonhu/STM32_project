@@ -57,6 +57,16 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define DHT11_DATA_Pin GPIO_PIN_0
+#define DHT11_DATA_GPIO_Port GPIOC
+#define LED_1_Pin GPIO_PIN_6
+#define LED_1_GPIO_Port GPIOA
+#define LED_2_Pin GPIO_PIN_7
+#define LED_2_GPIO_Port GPIOA
+#define HX711_SCK_Pin GPIO_PIN_0
+#define HX711_SCK_GPIO_Port GPIOD
+#define HX711_DOUT_Pin GPIO_PIN_1
+#define HX711_DOUT_GPIO_Port GPIOD
 
 /* USER CODE BEGIN Private defines */
 

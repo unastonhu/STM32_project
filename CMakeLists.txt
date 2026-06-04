@@ -40,6 +40,10 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/ds18b20.c
     Core/Src/mq_sensor.c
     Core/Src/hcsr04.c
+    Core/Inc/hx711.h
+    Core/Src/hx711.c
+    Core/Inc/dht11.h
+    Core/Src/dht11.c
 )
 
 # Add STM32CubeMX generated sources

@@ -19,7 +19,6 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "FreeRTOS.h"
-#include "cmsis_os2.h"
 #include "task.h"
 #include "main.h"
 #include "cmsis_os.h"
@@ -49,8 +48,7 @@ typedef struct {
     uint8_t dht11_temp;      // DHT11 温度 (C)
     int8_t  dht_status;    // DHT11 状态码 (用于排错)
     float   ds18b20_temp;  // DS18B20 温度 (C)
-    float   mq3_1, mq3_2,V_mq3_1,V_mq3_2;  // 酒精浓度
-    float   mq135_1, mq135_2,V_mq135_1,V_mq135_2; // 空气质量
+
 } SystemData_t;
 
 // 实例化这块黑板（全局变量）
@@ -222,8 +220,7 @@ void StartMonitorTask(void *argument)
     }
     
           printf("[ DS18B20 ]  Temp  : %.2f C\r\n", sysData.ds18b20_temp);
-          printf("[   MQ    ]   MQ3  :  MQ3_1  : %.2f mg/L (%.2f V)  |  MQ3_2  :  %.2f mg/L (%.2f V)\r\n",sysData.mq3_1,sysData.V_mq3_1 ,sysData.mq3_2,sysData.V_mq3_2);
-          printf("[   MQ    ]   MQ3  :  MQ135_1: %.2f mg/L (%.2f V)  |  MQ135_2:  %.2f mg/L (%.2f V)\r\n",sysData.mq135_1, sysData.V_mq135_1, sysData.mq135_2, sysData.V_mq135_2);
+          
 
            printf("====================================================================================\r\n");
 
@@ -404,17 +401,7 @@ void StartTempTask(void *argument)
 
       sysData.ds18b20_temp = DS18B20_GetTemp();
 
-      // 3. 直接从 DMA 数组里拿 4 个气体的电压，瞬间完成！
-      sysData.V_mq3_1   = MQ_Get_Voltage(MQ3_1_CH);
-      sysData.V_mq3_2   = MQ_Get_Voltage(MQ3_2_CH);
-      sysData.V_mq135_1 = MQ_Get_Voltage(MQ135_1_CH);
-      sysData.V_mq135_2 = MQ_Get_Voltage(MQ135_2_CH);
-
-      sysData.mq3_1   = MQ3_Get_mgL(sysData.V_mq3_1);
-      sysData.mq3_2 = MQ3_Get_mgL(sysData.V_mq3_2);
-      sysData.mq135_1 = MQ135_Get_PPM(sysData.V_mq135_1);
-      sysData.mq135_2 = MQ135_Get_PPM(sysData.V_mq135_2);
-      // 4. 打印数据
+     
     
 
       // 5. RTOS 专属休眠

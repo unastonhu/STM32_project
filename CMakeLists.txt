@@ -38,12 +38,17 @@ enable_language(C ASM)
 add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/main.c
     Core/Src/ds18b20.c
-    Core/Src/mq_sensor.c
     Core/Src/hcsr04.c
     Core/Inc/hx711.h
     Core/Src/hx711.c
     Core/Inc/dht11.h
     Core/Src/dht11.c
+    Core/Src/sgp40.c
+    Core/Inc/sgp40.h
+    Core/Inc/sensirion_gas_index_algorithm.h
+    Core/Src/sensirion_gas_index_algorithm.c
+    Core/Src/ens160_aht21.c
+    Core/Inc/ens160_aht21.h
 )
 
 # Add STM32CubeMX generated sources

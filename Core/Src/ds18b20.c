@@ -75,20 +75,24 @@ uint8_t DS18B20_Init(void)
     return presence; 
 }
 
-// 获取当前温度
+// 获取当前温度 (防卡死 + 防半路掉线版)
 float DS18B20_GetTemp(void)
 {
     uint8_t LSB, MSB;
     uint16_t temp_raw;
     
-    if (DS18B20_Init() != 0) return -100.0f; // 检测不到传感器返回错误值
+    // 1. 第一次通信：检查并在场则下达转换指令
+    if (DS18B20_Init() != 0) return -100.0f; // 找不到传感器，直接返回故障码
 
     DS18B20_WriteByte(0xCC); // 跳过 ROM
     DS18B20_WriteByte(0x44); // 开始温度转换
 
-    osDelay(750);          // DS18B20 转换时间
+    // 2. 交出 CPU 750 毫秒，等待芯片转换完成
+    osDelay(750);          
 
-    DS18B20_Init();          
+    // 3. 第二次通信：再次检查传感器是不是还活着！(防止这 750ms 内线断了)
+    if (DS18B20_Init() != 0) return -100.0f; 
+             
     DS18B20_WriteByte(0xCC); 
     DS18B20_WriteByte(0xBE); // 读取暂存器
 

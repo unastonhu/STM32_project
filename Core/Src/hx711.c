@@ -1,6 +1,6 @@
 #include "hx711.h"
 #include "freertos.h"
-#include "cmsis_os.h"
+#include "cmsis_os2.h" 
 
 // 内部记录保存的硬件引脚，供后续读取使用
 static GPIO_TypeDef *hx711_sck_port = NULL;
@@ -9,15 +9,84 @@ static GPIO_TypeDef *hx711_dout_port = NULL;
 static uint16_t      hx711_dout_pin = 0;
 
 static int32_t hx711_offset = 0; // 皮重（零点偏移量）
-static float   hx711_scale  = 418.0f; // 💡 初始校准系数（先填个大概，后面带你校准）
+static float   hx711_scale  = 418.0f; // 初始校准系数
 
-// 软件微秒级粗略延时，防止 STM32 跑得太快让 HX711 反应不过来 
+// 软件微秒级粗略延时
 static void HX711_Delay(void)
 {
     uint32_t i = 15;
     while(i--);
 }
 
+// ==========================================
+// 1. 底层读取函数 (带超时逃生机制)
+// ==========================================
+int32_t HX711_ReadRaw(void)
+{
+    uint32_t count = 0;
+    uint32_t timeout = 0;
+
+    
+    // 2. 把死等改成带超时的等待
+    // 如果线断了，引脚可能一直拉不低，等一小会儿就直接返回错误码！
+    while(HAL_GPIO_ReadPin(hx711_dout_port, hx711_dout_pin) == GPIO_PIN_SET)
+    {
+        timeout++;
+        if(timeout > 50000) { // 这个数字根据你的主频微调，大约等几毫秒
+            return 0xFFFFFFFF; // 返回一个极端的错误标识
+        }
+    }
+
+    for(int i = 0; i < 24; i++)
+    {
+        HAL_GPIO_WritePin(hx711_sck_port, hx711_sck_pin, GPIO_PIN_SET); 
+        HX711_Delay();
+        count = count << 1; 
+        HAL_GPIO_WritePin(hx711_sck_port, hx711_sck_pin, GPIO_PIN_RESET); 
+        HX711_Delay();
+        
+        if(HAL_GPIO_ReadPin(hx711_dout_port, hx711_dout_pin) == GPIO_PIN_SET)
+        {
+            count++; 
+        }
+    }
+
+    HAL_GPIO_WritePin(hx711_sck_port, hx711_sck_pin, GPIO_PIN_SET);
+    HX711_Delay();
+    count = count ^ 0x800000; 
+    HAL_GPIO_WritePin(hx711_sck_port, hx711_sck_pin, GPIO_PIN_RESET);
+    HX711_Delay();
+
+    return (int32_t)count;
+}
+
+// ==========================================
+// 2. 去皮函数
+// ==========================================
+void HX711_Tare(void)
+{
+    int32_t sum = 0;
+    for(int i = 0; i < 10; i++)
+    {
+        int32_t raw = HX711_ReadRaw();
+        
+        // 拦截底层刚加的超时故障码！
+        // 如果底层超时返回了 0xFFFFFFFF (强转为 int32_t 就是 -1)，说明开机就没接线
+        // 此时去皮没有任何意义，直接退出，防止算出错误的皮重！
+        if (raw == -1) return; 
+
+        sum += raw;
+        
+        // 每次读取之间休息一下，让 HX711 芯片准备好下一次数据
+        osDelay(20); 
+    }
+    hx711_offset = sum / 10; // 算出并保存真正的皮重
+}
+
+
+// ==========================================
+// 3. 初始化函数 (必须排在 Tare 后面)
+// ==========================================
 void HX711_Init(GPIO_TypeDef *sck_port, uint16_t sck_pin, GPIO_TypeDef *dout_port, uint16_t dout_pin)
 {
     hx711_sck_port  = sck_port;
@@ -25,65 +94,25 @@ void HX711_Init(GPIO_TypeDef *sck_port, uint16_t sck_pin, GPIO_TypeDef *dout_por
     hx711_dout_port = dout_port;
     hx711_dout_pin  = dout_pin;
 
-    // 确保时钟线初始为低电平 [cite: 350]
     HAL_GPIO_WritePin(hx711_sck_port, hx711_sck_pin, GPIO_PIN_RESET);
     
     // 上电自动去皮清零
     HX711_Tare();
 }
 
-int32_t HX711_ReadRaw(void)
-{
-    uint32_t count = 0;
-
-    // 1. 严格死等 DOUT 变低电平（表示 HX711 已经转换完成，数据准备就绪）
-    // 如果硬件断线，程序会卡在这里。工业级项目这应该加超时检测，咱们实验先这样最直观
-
-    while(HAL_GPIO_ReadPin(hx711_dout_port, hx711_dout_pin) == GPIO_PIN_SET);
-
-    // 2. 循环 24 次，通过时钟脉冲一位一位地把 24 位数据读出来 
-    for(int i = 0; i < 24; i++)
-    {
-        HAL_GPIO_WritePin(hx711_sck_port, hx711_sck_pin, GPIO_PIN_SET); // SCK 拉高 
-        HX711_Delay();
-        count = count << 1; // 变量左移一位 [cite: 625]
-        HAL_GPIO_WritePin(hx711_sck_port, hx711_sck_pin, GPIO_PIN_RESET); // SCK 拉低 
-        HX711_Delay();
-        
-        if(HAL_GPIO_ReadPin(hx711_dout_port, hx711_dout_pin) == GPIO_PIN_SET)
-        {
-            count++; // 如果读到高电平，对应位置 1 [cite: 627]
-        }
-    }
-
-    // 3. 第 25 个脉冲：告诉 HX711 下一次读取使用通道 A，放大增益 128 倍 [cite: 322, 323]
-    HAL_GPIO_WritePin(hx711_sck_port, hx711_sck_pin, GPIO_PIN_SET);
-    HX711_Delay();
-    count = count ^ 0x800000; // 官方手册要求的二进制补码转换逻辑 [cite: 630]
-    HAL_GPIO_WritePin(hx711_sck_port, hx711_sck_pin, GPIO_PIN_RESET);
-    HX711_Delay();
-
-    return (int32_t)count;
-}
-
-void HX711_Tare(void)
-{
-    int32_t sum = 0;
-    // 连续读取 10 次取平均值作为零点偏移量
-    for(int i = 0; i < 10; i++)
-    {
-        sum += HX711_ReadRaw();
-        osDelay(20); // 给系统腾出喘息时间
-    }
-    hx711_offset = sum / 10;
-}
-
+// ==========================================
+// 4. 获取重量函数
+// ==========================================
 float HX711_GetWeight(void)
 {
-    int32_t raw = HX711_ReadRaw();
-    // 实际重量 = (当前读数值 - 零点皮重) / 比例系数
-    float weight = (float)(raw - hx711_offset) / hx711_scale;
+    uint32_t raw_val = HX711_ReadRaw();
     
-    if(weight < 0.0f) weight = 0.0f; // 过滤轻微的负数抖动
+    // 拦截底层故障码，向上级报警
+    if(raw_val == 0xFFFFFFFF) {
+        return -999.0f; 
+    }
+
+    float weight = (float)(raw_val - hx711_offset) / hx711_scale;
+    if(weight < 0.0f) weight = 0.0f; 
     return weight;
 }

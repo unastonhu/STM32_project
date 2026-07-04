@@ -20,6 +20,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
+#include "i2c.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -29,8 +30,9 @@
 
 #include <stdio.h>
 #include "ds18b20.h"
-#include "mq_sensor.h"
 #include "hcsr04.h"
+#include "hx711.h"
+#include "dht11.h"
 
 /* USER CODE END Includes */
 
@@ -112,6 +114,7 @@ int main(void)
   MX_GPIO_Init();
   MX_USART1_UART_Init();
   MX_TIM4_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */

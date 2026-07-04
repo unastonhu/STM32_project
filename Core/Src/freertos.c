@@ -27,15 +27,17 @@
 /* USER CODE BEGIN Includes */
 
 #include <stdio.h>
-
+#include "i2c.h"
+#include "tim.h"
+#include "usart.h"
 
 
 #include "ds18b20.h"
-#include "mq_sensor.h"
 #include "hcsr04.h"
 #include "hx711.h"
 #include "dht11.h"
-
+#include "sgp40.h"
+#include "ens160_aht21.h"
 
 /* USER CODE END Includes */
 
@@ -43,11 +45,28 @@
 /* USER CODE BEGIN PTD */
 
 typedef struct {
+
     float   weight;        // 重量 (g)
+    int8_t  weight_status; // 称重状态 (1:正常, -1:掉线)
+
+    float   ds18b20_temp;  // DS18B20 温度 (C)
+    int8_t  ds18b20_status;// DS18B20 状态 (1:正常, -1:掉线)
+
     uint8_t dht11_hum;       // DHT11 湿度 (%)
     uint8_t dht11_temp;      // DHT11 温度 (C)
     int8_t  dht_status;    // DHT11 状态码 (用于排错)
-    float   ds18b20_temp;  // DS18B20 温度 (C)
+    
+    uint16_t sgp40_raw;    // SGP40 原始 VOC 信号 (Raw Signal)
+    int8_t  sgp40_status;  // SGP40 状态码 (用于排错)
+    int32_t voc_index;     // SGP40 官方算法解析后的 VOC 指数 (0~500)
+
+    float    aht_temp;     // AHT21 高精度温度
+    float    aht_hum;      // AHT21 高精度湿度
+    uint16_t ens_tvoc;     // ENS160 总挥发性有机物 (ppb)
+    uint16_t ens_eco2;     // ENS160 等效二氧化碳 (ppm)
+    uint8_t  ens_aqi;      // ENS160 空气质量指数 (1~5)
+    int8_t   env_status;   // 模块状态码
+
 
 } SystemData_t;
 
@@ -100,13 +119,6 @@ const osThreadAttr_t Task_Sonar_attributes = {
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
-/* Definitions for Task_Weight */
-osThreadId_t Task_WeightHandle;
-const osThreadAttr_t Task_Weight_attributes = {
-  .name = "Task_Weight",
-  .stack_size = 256 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
 /* Definitions for Task_Humidity */
 osThreadId_t Task_HumidityHandle;
 const osThreadAttr_t Task_Humidity_attributes = {
@@ -114,11 +126,11 @@ const osThreadAttr_t Task_Humidity_attributes = {
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
-/* Definitions for Task_Temp */
-osThreadId_t Task_TempHandle;
-const osThreadAttr_t Task_Temp_attributes = {
-  .name = "Task_Temp",
-  .stack_size = 128 * 4,
+/* Definitions for Task_I2C */
+osThreadId_t Task_I2CHandle;
+const osThreadAttr_t Task_I2C_attributes = {
+  .name = "Task_I2C",
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
 
@@ -130,9 +142,8 @@ const osThreadAttr_t Task_Temp_attributes = {
 void StartMonitorTask(void *argument);
 void StartLEDTask(void *argument);
 void StartSonarTask(void *argument);
-void StartWeightTask(void *argument);
 void StartHumidityTask(void *argument);
-void StartTempTask(void *argument);
+void StartI2cTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -172,14 +183,11 @@ void MX_FREERTOS_Init(void) {
   /* creation of Task_Sonar */
   Task_SonarHandle = osThreadNew(StartSonarTask, NULL, &Task_Sonar_attributes);
 
-  /* creation of Task_Weight */
-  Task_WeightHandle = osThreadNew(StartWeightTask, NULL, &Task_Weight_attributes);
-
   /* creation of Task_Humidity */
   Task_HumidityHandle = osThreadNew(StartHumidityTask, NULL, &Task_Humidity_attributes);
 
-  /* creation of Task_Temp */
-  Task_TempHandle = osThreadNew(StartTempTask, NULL, &Task_Temp_attributes);
+  /* creation of Task_I2C */
+  Task_I2CHandle = osThreadNew(StartI2cTask, NULL, &Task_I2C_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -211,18 +219,46 @@ void StartMonitorTask(void *argument)
 
           printf("\r\n============================ SYSTEM STATUS ====================================\r\n");
     
-          printf("[  HX711  ] Weight : %.1f g\r\n", sysData.weight);
+          // 称重 UI
+      if (sysData.weight_status == 1) 
+           printf("[  HX711  ] Weight : %.1f g\r\n", sysData.weight);
+
+      else printf("[  HX711  ]  Error : Offline!\r\n");
     
     if(sysData.dht_status == 1) {
           printf("[  DHT11  ]  Temp  : %d C  | Hum: %d %%\r\n", sysData.dht11_temp, sysData.dht11_hum);
     } else {
-          printf("[  DHT11  ] Error Code: %d\r\n", sysData.dht_status);
+          printf("[  DHT11  ]  Error : %d\r\n", sysData.dht_status);
     }
     
-          printf("[ DS18B20 ]  Temp  : %.2f C\r\n", sysData.ds18b20_temp);
+          // DS18B20 UI
+      if (sysData.ds18b20_status == 1) 
+           printf("[ DS18B20 ]  Temp  : %.2f C\r\n", sysData.ds18b20_temp);
+      else printf("[ DS18B20 ]  Error : Offline!\r\n");
           
+      if (sysData.sgp40_status == 1) {
+          printf("[  SGP40  ] RawVOC : %u ticks  |  VOC Index : %ld\r\n", sysData.sgp40_raw, sysData.voc_index);
+      } else {
+          printf("[  SGP40  ]  Error : %d\r\n", sysData.sgp40_status);
+      }
 
-           printf("====================================================================================\r\n");
+      
+      if (sysData.env_status != -1) {
+          printf("[  AHT21  ] Temp   : %.2f C    |  Hum : %.2f %%\r\n", sysData.aht_temp, sysData.aht_hum);
+          
+          // 然后再单独判断 ENS160 的状态
+          if (sysData.env_status == 1) {
+              printf("[  ENS160 ] TVOC   : %u ppb    | eCO2 : %u ppm   | AQI: %d\r\n", sysData.ens_tvoc, sysData.ens_eco2, sysData.ens_aqi);
+          } else if (sysData.env_status == -2) {
+              printf("[  ENS160 ] Data not ready yet (Warming up...)\r\n");
+          }
+      } else {
+          // 只有返回 -1 时，才是连 AHT21 都彻底掉线了
+          printf("[ ENV_MOD ] Error : AHT21 Offline!\r\n");
+      }
+      
+
+          printf("====================================================================================\r\n");
 
   }
   /* USER CODE END StartMonitorTask */
@@ -293,43 +329,10 @@ void StartSonarTask(void *argument)
     }
 
     // 5. 休息一下，开启下一次测距
-    osDelay(1000);
+    osDelay(500);
 
   }
   /* USER CODE END StartSonarTask */
-}
-
-/* USER CODE BEGIN Header_StartWeightTask */
-/**
-* @brief Function implementing the Task_Weight thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartWeightTask */
-void StartWeightTask(void *argument)
-{
-  /* USER CODE BEGIN StartWeightTask */
-  (void)argument;
-
-  // 1. 初始化 HX711 模块 (绑定 PB6, PB7)
-  HX711_Init(GPIOD,GPIO_PIN_0,GPIOD,GPIO_PIN_1);
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1000);
-
-    // 2. 核心换算并获取重量（克）
-    float weight = HX711_GetWeight();
-    
-    // 3. 打印称重结果
-    weight = (weight < 0.0f) ? 0.0f : weight; // 过滤负数抖动
-    sysData.weight = weight; // 更新全局黑板数据，供监视器任务读取
-
-    // 4. 重量不需要太频繁刷新，500ms 称一次，体验最好且省 CPU
-    osDelay(5000);
-
-  }
-  /* USER CODE END StartWeightTask */
 }
 
 /* USER CODE BEGIN Header_StartHumidityTask */
@@ -344,71 +347,115 @@ void StartHumidityTask(void *argument)
   /* USER CODE BEGIN StartHumidityTask */
   (void)argument;
 
- // 传给它我们刚配置好的串口 3 句柄
+ 
 
-
-  uint8_t hum = 0;
-  uint8_t temp_dht = 0;
-
-// 初始化：绑定我们配置好的 PC0 引脚
+// === 1. 统一在这里进行所有慢速传感器的初始化 ===
   DHT11_Init(GPIOC, GPIO_PIN_0);
+  DS18B20_Init(); // 假设你的 DS18B20 在 PA8，请根据实际情况修改
+  HX711_Init(GPIOD, GPIO_PIN_0, GPIOD, GPIO_PIN_1);
+  // SGP40_Init(&hi2c1); // 预留给 SGP40
 
   /* Infinite loop */
   for(;;)
   {
-    osDelay(500); // 先等一会，给系统和传感器腾出时间
+     // 1. 智能测称重
+      float w = HX711_GetWeight();
+      if (w <= -999.0f) { // 捕获到故障码
+          sysData.weight_status = -1; // 标记坏了
+          sysData.weight = 0;
+      } else {
+          sysData.weight_status = 1;  // 标记正常
+          sysData.weight = (w < 0.0f) ? 0.0f : w;
+      }
 
-   int8_t status = DHT11_Read_Data(&hum, &temp_dht);
-    
-    if(status == 1)
-    {
-        sysData.dht11_hum = hum;
-        sysData.dht11_temp = temp_dht;
-        sysData.dht_status = 1; // 成功读取
-    }
-    else
-    {
-        // 关键所在：这行会打印出它到底死在了哪里！
-        printf("[DHT11 Task] GPIO Error Code: %d\r\n", status);
-    }
+      // 2. 智能测 DS18B20 (假设你把故障码设为了 -999)
+      float t = DS18B20_GetTemp();
+      if (t <= -999.0f) {
+          sysData.ds18b20_status = -1;
+      } else {
+          sysData.ds18b20_status = 1;
+          sysData.ds18b20_temp = t;
+      }
 
-    // 手册规定两次读取必须间隔 1 秒以上
-    osDelay(5000);
+      // 3. 测 DHT11 (本身就自带容错)
+      uint8_t hum = 0, temp_dht = 0;
+      sysData.dht_status = DHT11_Read_Data(&hum, &temp_dht);
+      if(sysData.dht_status == 1) {
+          sysData.dht11_hum = hum;
+          sysData.dht11_temp = temp_dht;
+      }
+      osDelay(30000);
     
 
   }
   /* USER CODE END StartHumidityTask */
 }
 
-/* USER CODE BEGIN Header_StartTempTask */
+/* USER CODE BEGIN Header_StartI2cTask */
 /**
-* @brief Function implementing the Task_Temp thread.
+* @brief Function implementing the Task_I2C thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartTempTask */
-void StartTempTask(void *argument)
+/* USER CODE END Header_StartI2cTask */
+void StartI2cTask(void *argument)
 {
-  /* USER CODE BEGIN StartTempTask */
+  /* USER CODE BEGIN StartI2cTask */
   (void)argument;
-  MQ_Init();
+
+  SGP40_Init(&hi2c1);
+  ENV_Module_Init(&hi2c1);
+  // BME688_Init(&hi2c1); // 预留
+
+  uint32_t task_tick = 0; // 用于心跳计数
+
   /* Infinite loop */
   for(;;)
   {
-    
-          // 2. 读取温度 (此时 DS18B20 里面的 osDelay 会让出 CPU，非常健康！)
-    osDelay(2000);
 
-      sysData.ds18b20_temp = DS18B20_GetTemp();
+    task_tick++; // 心跳+1
 
-     
-    
+ // =========================================================
+      // ⏱️ 频段 1：[ 1Hz ] - 冰箱环境精密监控
+      // =========================================================
+      if (task_tick % 1 == 0) 
+      {
+          // 1. 调用咱们定稿的终极函数（它内部会自动测 AHT21 并喂给 ENS160）
+        sysData.env_status = ENV_Module_ReadAll(
+              &sysData.aht_temp, 
+              &sysData.aht_hum, 
+              &sysData.ens_tvoc, 
+              &sysData.ens_eco2, 
+              &sysData.ens_aqi
+          );
+          
+          // 2. 只要返回值不是 -1，就说明 AHT21 没掉线，拿到了真实的冰箱温湿度！
+          if (sysData.env_status != -1) 
+          {
+              // 喂 SGP40 (用新鲜出炉的真值做底层补偿)
+              sysData.sgp40_status = SGP40_GetVOCIndex(
+                  sysData.aht_hum,   
+                  sysData.aht_temp,  
+                  &sysData.sgp40_raw,         
+                  &sysData.voc_index          
+              );
+          }
+          else
+          {
+              // 🚨 故障处理：AHT21 彻底没拿到数据
+              // 既不喂假数据，也不触发补偿，防止 SGP40 算法崩溃
+              sysData.sgp40_status = -2; // 在黑板上标记：环境数据不可用
+          }
+      }
 
-      // 5. RTOS 专属休眠
-      osDelay(5000);
 
+      // =========================================================
+      // 任务底层心跳：严格锁定 1 秒钟休眠
+      // 所有的传感器，全靠这 1 秒钟的心跳来驱动！
+      // =========================================================
+      osDelay(1000);
   }
-  /* USER CODE END StartTempTask */
+  /* USER CODE END StartI2cTask */
 }
 
 /* Private application code --------------------------------------------------*/

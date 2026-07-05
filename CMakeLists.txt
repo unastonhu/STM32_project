@@ -49,6 +49,15 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/sensirion_gas_index_algorithm.c
     Core/Src/ens160_aht21.c
     Core/Inc/ens160_aht21.h
+    Core/Inc/bme68x_defs.h
+    Core/Inc/bme68x.h
+    Core/Src/bme68x.c
+    Core/Inc/bme688_port.h
+    Core/Src/bme688_port.c
+    Core/Inc/w25q64.h
+    Core/Src/w25q64.c
+    Core/Inc/system_data.h
+    Core/Src/system_data.c
 )
 
 # Add STM32CubeMX generated sources

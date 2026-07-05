@@ -63,6 +63,14 @@ void Error_Handler(void);
 #define LED_1_GPIO_Port GPIOA
 #define LED_2_Pin GPIO_PIN_7
 #define LED_2_GPIO_Port GPIOA
+#define W25_01_CS_Pin GPIO_PIN_4
+#define W25_01_CS_GPIO_Port GPIOC
+#define W25_02_CS_Pin GPIO_PIN_5
+#define W25_02_CS_GPIO_Port GPIOC
+#define IR_D2_Pin GPIO_PIN_13
+#define IR_D2_GPIO_Port GPIOD
+#define IR_D1_Pin GPIO_PIN_14
+#define IR_D1_GPIO_Port GPIOD
 #define HX711_SCK_Pin GPIO_PIN_0
 #define HX711_SCK_GPIO_Port GPIOD
 #define HX711_DOUT_Pin GPIO_PIN_1

@@ -1,0 +1,13 @@
+#ifndef __BME688_PORT_H
+#define __BME688_PORT_H
+
+#include "main.h"
+
+// 1. 初始化 BME688 传感器
+int8_t BME688_Port_Init(I2C_HandleTypeDef *hi2c);
+
+// 2. 触发并读取数据 (Forced Mode: 测一次就休眠，不占总线)
+// 返回值：1 = 成功，-1 = 通信失败或数据未就绪
+int8_t BME688_Port_Read(float *temp, float *hum, float *press, float *gas_res);
+
+#endif /* __BME688_PORT_H */

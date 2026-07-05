@@ -3,7 +3,7 @@
 
 // 硬件 I2C 地址 (适配 STM32 HAL 左移 1 位)
 #define AHT21_ADDR  (0x38 << 1) 
-#define ENS160_ADDR (0x52 << 1) // 如果读不到 ENS160 数据，请改为 (0x53 << 1)
+#define ENS160_ADDR (0x53 << 1) // 如果读不到 ENS160 数据，请改为 (0x53 << 1)
 
 // ENS160 寄存器地址
 #define ENS160_REG_OPMODE       0x10
@@ -86,8 +86,11 @@ int8_t ENV_Module_ReadAll(float *temp, float *hum, uint16_t *tvoc, uint16_t *eco
     ENS160_SetEnvironment(*temp, *hum);
 
     // ------- 第三步：读取 ENS160 解算结果 -------
-    uint8_t status;
-    HAL_I2C_Mem_Read(env_i2c, ENS160_ADDR, ENS160_REG_DATA_STATUS, 1, &status, 1, 100);
+    uint8_t status = 0;
+
+    if (HAL_I2C_Mem_Read(env_i2c, ENS160_ADDR, ENS160_REG_DATA_STATUS, 1, &status, 1, 100) != HAL_OK) {
+        return -3; // 新增故障码 -3：ENS160 I2C 寻址失败！
+    }
     
     // 检查 STAT_NEWDAT 位 (Bit 1)，只有新数据算好了才去读
     if (status & 0x02) {

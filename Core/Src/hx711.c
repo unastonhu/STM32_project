@@ -33,7 +33,7 @@ int32_t HX711_ReadRaw(void)
     {
         timeout++;
         if(timeout > 50000) { // 这个数字根据你的主频微调，大约等几毫秒
-            return 0xFFFFFFFF; // 返回一个极端的错误标识
+            return 0xFFFF; // 返回一个极端的错误标识
         }
     }
 
@@ -105,10 +105,10 @@ void HX711_Init(GPIO_TypeDef *sck_port, uint16_t sck_pin, GPIO_TypeDef *dout_por
 // ==========================================
 float HX711_GetWeight(void)
 {
-    uint32_t raw_val = HX711_ReadRaw();
+    int32_t raw_val = HX711_ReadRaw();
     
     // 拦截底层故障码，向上级报警
-    if(raw_val == 0xFFFFFFFF) {
+    if(raw_val == 0xFFFF) {
         return -999.0f; 
     }
 

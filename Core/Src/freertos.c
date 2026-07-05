@@ -36,42 +36,23 @@
 #include "hcsr04.h"
 #include "hx711.h"
 #include "dht11.h"
+
 #include "sgp40.h"
 #include "ens160_aht21.h"
+
+#include "bme68x.h"
+#include "bme688_port.h"
+#include "bme68x_defs.h"
+
+#include "w25q64.h"
+#include "system_data.h"
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-typedef struct {
 
-    float   weight;        // 重量 (g)
-    int8_t  weight_status; // 称重状态 (1:正常, -1:掉线)
-
-    float   ds18b20_temp;  // DS18B20 温度 (C)
-    int8_t  ds18b20_status;// DS18B20 状态 (1:正常, -1:掉线)
-
-    uint8_t dht11_hum;       // DHT11 湿度 (%)
-    uint8_t dht11_temp;      // DHT11 温度 (C)
-    int8_t  dht_status;    // DHT11 状态码 (用于排错)
-    
-    uint16_t sgp40_raw;    // SGP40 原始 VOC 信号 (Raw Signal)
-    int8_t  sgp40_status;  // SGP40 状态码 (用于排错)
-    int32_t voc_index;     // SGP40 官方算法解析后的 VOC 指数 (0~500)
-
-    float    aht_temp;     // AHT21 高精度温度
-    float    aht_hum;      // AHT21 高精度湿度
-    uint16_t ens_tvoc;     // ENS160 总挥发性有机物 (ppb)
-    uint16_t ens_eco2;     // ENS160 等效二氧化碳 (ppm)
-    uint8_t  ens_aqi;      // ENS160 空气质量指数 (1~5)
-    int8_t   env_status;   // 模块状态码
-
-
-} SystemData_t;
-
-// 实例化这块黑板（全局变量）
-SystemData_t sysData = {0};
 
 /* USER CODE END PTD */
 
@@ -91,9 +72,6 @@ SystemData_t sysData = {0};
 
 
 extern TIM_HandleTypeDef htim4;
-
-
-
 
 
 
@@ -214,51 +192,11 @@ void StartMonitorTask(void *argument)
   for(;;)
   {
 
+    // 1. 打印系统状态
+    System_PrintStatus(&sysData);
+
+    // 2. 每隔 5 秒打印一次
     osDelay(5000);
-
-
-          printf("\r\n============================ SYSTEM STATUS ====================================\r\n");
-    
-          // 称重 UI
-      if (sysData.weight_status == 1) 
-           printf("[  HX711  ] Weight : %.1f g\r\n", sysData.weight);
-
-      else printf("[  HX711  ]  Error : Offline!\r\n");
-    
-    if(sysData.dht_status == 1) {
-          printf("[  DHT11  ]  Temp  : %d C  | Hum: %d %%\r\n", sysData.dht11_temp, sysData.dht11_hum);
-    } else {
-          printf("[  DHT11  ]  Error : %d\r\n", sysData.dht_status);
-    }
-    
-          // DS18B20 UI
-      if (sysData.ds18b20_status == 1) 
-           printf("[ DS18B20 ]  Temp  : %.2f C\r\n", sysData.ds18b20_temp);
-      else printf("[ DS18B20 ]  Error : Offline!\r\n");
-          
-      if (sysData.sgp40_status == 1) {
-          printf("[  SGP40  ] RawVOC : %u ticks  |  VOC Index : %ld\r\n", sysData.sgp40_raw, sysData.voc_index);
-      } else {
-          printf("[  SGP40  ]  Error : %d\r\n", sysData.sgp40_status);
-      }
-
-      
-      if (sysData.env_status != -1) {
-          printf("[  AHT21  ] Temp   : %.2f C    |  Hum : %.2f %%\r\n", sysData.aht_temp, sysData.aht_hum);
-          
-          // 然后再单独判断 ENS160 的状态
-          if (sysData.env_status == 1) {
-              printf("[  ENS160 ] TVOC   : %u ppb    | eCO2 : %u ppm   | AQI: %d\r\n", sysData.ens_tvoc, sysData.ens_eco2, sysData.ens_aqi);
-          } else if (sysData.env_status == -2) {
-              printf("[  ENS160 ] Data not ready yet (Warming up...)\r\n");
-          }
-      } else {
-          // 只有返回 -1 时，才是连 AHT21 都彻底掉线了
-          printf("[ ENV_MOD ] Error : AHT21 Offline!\r\n");
-      }
-      
-
-          printf("====================================================================================\r\n");
 
   }
   /* USER CODE END StartMonitorTask */
@@ -275,6 +213,12 @@ void StartLEDTask(void *argument)
 {
   /* USER CODE BEGIN StartLEDTask */
   (void)argument;
+
+  W25Q64_Init();
+  sysData.flash1.id = W25Q64_ReadID(0);
+  sysData.flash2.id = W25Q64_ReadID(1);
+
+
   /* Infinite loop */
   for(;;)
   {
@@ -310,6 +254,17 @@ void StartSonarTask(void *argument)
   for(;;)
   {
     
+    // ==========================================
+      // 读取红外对射模块 (D0)
+      // ==========================================
+      // 根据你模块板子上的旋钮调校，通常有遮挡时 D0 输出高电平 (1) 或低电平 (0)
+      // 如果你发现屏幕上显示的 CLEAR 和 BLOCKED 是反的，在 HAL_GPIO_ReadPin 前面加个感叹号 ! 即可反转逻辑
+
+      sysData.ir.ir1_blocked = HAL_GPIO_ReadPin(GPIOD, IR_D1_Pin);
+      sysData.ir.ir2_blocked = HAL_GPIO_ReadPin(GPIOD, IR_D2_Pin);
+      sysData.ir.status = sysData.ir.ir2_blocked && sysData.ir.ir1_blocked; // 读取同时遮挡和同时不遮挡的状态码，1:都被遮挡, 0:都没被遮挡, 其他情况为中间状态
+
+
      
     // 2. 触发超声波测距 (绑定 PB5)
     HCSR04_StartTrigger(GPIOB, GPIO_PIN_5);
@@ -353,7 +308,7 @@ void StartHumidityTask(void *argument)
   DHT11_Init(GPIOC, GPIO_PIN_0);
   DS18B20_Init(); // 假设你的 DS18B20 在 PA8，请根据实际情况修改
   HX711_Init(GPIOD, GPIO_PIN_0, GPIOD, GPIO_PIN_1);
-  // SGP40_Init(&hi2c1); // 预留给 SGP40
+ 
 
   /* Infinite loop */
   for(;;)
@@ -361,28 +316,28 @@ void StartHumidityTask(void *argument)
      // 1. 智能测称重
       float w = HX711_GetWeight();
       if (w <= -999.0f) { // 捕获到故障码
-          sysData.weight_status = -1; // 标记坏了
-          sysData.weight = 0;
+          sysData.hx711.status = -1; // 标记坏了
+          sysData.hx711.weight = 0;
       } else {
-          sysData.weight_status = 1;  // 标记正常
-          sysData.weight = (w < 0.0f) ? 0.0f : w;
+          sysData.hx711.status = 1;  // 标记正常
+          sysData.hx711.weight = (w < 0.0f) ? 0.0f : w;
       }
 
       // 2. 智能测 DS18B20 (假设你把故障码设为了 -999)
       float t = DS18B20_GetTemp();
       if (t <= -999.0f) {
-          sysData.ds18b20_status = -1;
+          sysData.ds18b20.status = -1;
       } else {
-          sysData.ds18b20_status = 1;
-          sysData.ds18b20_temp = t;
+          sysData.ds18b20.status = 1;
+          sysData.ds18b20.temp = t;
       }
 
       // 3. 测 DHT11 (本身就自带容错)
       uint8_t hum = 0, temp_dht = 0;
-      sysData.dht_status = DHT11_Read_Data(&hum, &temp_dht);
-      if(sysData.dht_status == 1) {
-          sysData.dht11_hum = hum;
-          sysData.dht11_temp = temp_dht;
+      sysData.dht11.status = DHT11_Read_Data(&hum, &temp_dht);
+      if(sysData.dht11.status == 1) {
+          sysData.dht11.hum = hum;
+          sysData.dht11.temp = temp_dht;
       }
       osDelay(30000);
     
@@ -405,7 +360,9 @@ void StartI2cTask(void *argument)
 
   SGP40_Init(&hi2c1);
   ENV_Module_Init(&hi2c1);
-  // BME688_Init(&hi2c1); // 预留
+  BME688_Port_Init(&hi2c1);
+
+  
 
   uint32_t task_tick = 0; // 用于心跳计数
 
@@ -421,33 +378,58 @@ void StartI2cTask(void *argument)
       if (task_tick % 1 == 0) 
       {
           // 1. 调用咱们定稿的终极函数（它内部会自动测 AHT21 并喂给 ENS160）
-        sysData.env_status = ENV_Module_ReadAll(
-              &sysData.aht_temp, 
-              &sysData.aht_hum, 
-              &sysData.ens_tvoc, 
-              &sysData.ens_eco2, 
-              &sysData.ens_aqi
+        sysData.env.status = ENV_Module_ReadAll(
+              &sysData.env.aht_temp, 
+              &sysData.env.aht_hum, 
+              &sysData.env.ens_tvoc, 
+              &sysData.env.ens_eco2, 
+              &sysData.env.ens_aqi
           );
           
+          // 新增：秒表逻辑
+          if (sysData.env.status == -2) {
+              sysData.env.ens_warmup_sec++; // 如果在热身，秒表+1
+          } else if (sysData.env.status == 1) {
+              sysData.env.ens_warmup_sec = 0; // 如果出数据了，秒表清零
+          }
+  
+
           // 2. 只要返回值不是 -1，就说明 AHT21 没掉线，拿到了真实的冰箱温湿度！
-          if (sysData.env_status != -1) 
+          if (sysData.env.status != -1) 
           {
               // 喂 SGP40 (用新鲜出炉的真值做底层补偿)
-              sysData.sgp40_status = SGP40_GetVOCIndex(
-                  sysData.aht_hum,   
-                  sysData.aht_temp,  
-                  &sysData.sgp40_raw,         
-                  &sysData.voc_index          
+              sysData.sgp40.status = SGP40_GetVOCIndex(
+                  sysData.env.aht_hum,   
+                  sysData.env.aht_temp,  
+                  &sysData.sgp40.raw,         
+                  &sysData.sgp40.voc_index          
               );
           }
           else
           {
               // 🚨 故障处理：AHT21 彻底没拿到数据
               // 既不喂假数据，也不触发补偿，防止 SGP40 算法崩溃
-              sysData.sgp40_status = -2; // 在黑板上标记：环境数据不可用
+              sysData.sgp40.status = -2; // 在黑板上标记：环境数据不可用
           }
+
+
       }
 
+      // =========================================================
+
+      // =========================================================
+      // ⏱️ 频段 3：[ 低频区 - 30秒/次 ] 
+      // 专供：BME688 (测气压、环境底噪气体阻值)
+      // =========================================================
+   if (task_tick % 30 == 0)
+   {
+       sysData.bme688.status = BME688_Port_Read(
+           &sysData.bme688.temp, 
+           &sysData.bme688.hum, 
+           &sysData.bme688.press, 
+           &sysData.bme688.gas_res
+       );
+   }
 
       // =========================================================
       // 任务底层心跳：严格锁定 1 秒钟休眠

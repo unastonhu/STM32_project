@@ -29,6 +29,41 @@ void W25Q64_Init(void)
 }
 
 // ---------------------------------------------------------
+// 核心函数：W25Q64 健康度校验 (魔数机制)
+// ---------------------------------------------------------
+int8_t W25Q64_SanityCheck(uint8_t dev_index)
+{
+    // 计算最后一个扇区的物理地址: 第 2047 个扇区，每个扇区 4096 字节
+    // 2047 * 4096 = 8,384,512 (十六进制 0x7FF000)
+    uint32_t test_addr = 0x7FF000; 
+    uint32_t magic_word = 0x5AA5A55A; // 效验密码
+    uint32_t read_buf = 0;            // 读回来的数据容器
+
+    // 1. 保护机制：先读一次看看，是不是以前已经写过了？
+    W25Q64_ReadData(dev_index, (uint8_t*)&read_buf, test_addr, 4);
+    if (read_buf == magic_word) {
+        return 1; // 以前写过且数据完好无损，读写功能完美！直接放行，不消耗擦写寿命。
+    }
+
+    // 2. 如果读出来不对（说明是出厂新芯片，或者数据损坏），执行：擦除 -> 写入
+    W25Q64_EraseSector(dev_index, test_addr / 4096); 
+    W25Q64_WritePage(dev_index, (uint8_t*)&magic_word, test_addr, 4);
+
+    // 3. 再次读取进行终极校验
+    read_buf = 0; // 清空容器
+    W25Q64_ReadData(dev_index, (uint8_t*)&read_buf, test_addr, 4);
+
+    if (read_buf == magic_word) {
+        return 1;  // 刚写完读出来严丝合缝，芯片极其健康！
+    } else {
+        return -1; // 完蛋，写不进去或者读出来是乱码，硬件损坏或飞线太长干扰大！
+    }
+}
+
+
+
+
+// ---------------------------------------------------------
 // 底层通信接口
 // ---------------------------------------------------------
 static uint8_t SPI_SwapByte(uint8_t tx_data)
@@ -68,4 +103,101 @@ uint32_t W25Q64_ReadID(uint8_t dev_index)
 
     temp = (temp0 << 16) | (temp1 << 8) | temp2;
     return temp;
+}
+
+//-------------------------------------------------------------
+// ---------------------------------------------------------
+// 内部函数：读取状态寄存器，等待芯片空闲 (写操作必备)
+// ---------------------------------------------------------
+void W25Q64_WaitBusy(uint8_t dev_index)
+{
+    uint8_t status = 0;
+    GPIO_TypeDef* port = W25Q64_Devs[dev_index].CS_Port;
+    uint16_t pin       = W25Q64_Devs[dev_index].CS_Pin;
+
+    do {
+        HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
+        SPI_SwapByte(W25X_ReadStatusReg);
+        status = SPI_SwapByte(0xFF);
+        HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
+    } while ((status & 0x01) == 0x01); // 只要最后一位是 1，说明还在忙，死等
+}
+
+// ---------------------------------------------------------
+// 内部函数：写使能 (每次写或擦除前，必须调一次)
+// ---------------------------------------------------------
+static void W25Q64_WriteEnable(uint8_t dev_index)
+{
+    GPIO_TypeDef* port = W25Q64_Devs[dev_index].CS_Port;
+    uint16_t pin       = W25Q64_Devs[dev_index].CS_Pin;
+
+    HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
+    SPI_SwapByte(W25X_WriteEnable);
+    HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
+}
+
+// ---------------------------------------------------------
+// 核心函数：读取任意长度数据
+// ---------------------------------------------------------
+void W25Q64_ReadData(uint8_t dev_index, uint8_t* pBuffer, uint32_t ReadAddr, uint16_t NumByteToRead)
+{
+    GPIO_TypeDef* port = W25Q64_Devs[dev_index].CS_Port;
+    uint16_t pin       = W25Q64_Devs[dev_index].CS_Pin;
+
+    HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
+    SPI_SwapByte(W25X_ReadData); // 发送读指令
+    SPI_SwapByte((uint8_t)((ReadAddr) >> 16)); // 发送 24 位地址
+    SPI_SwapByte((uint8_t)((ReadAddr) >> 8));
+    SPI_SwapByte((uint8_t)ReadAddr);
+    
+    for (uint16_t i = 0; i < NumByteToRead; i++) {
+        pBuffer[i] = SPI_SwapByte(0xFF); // 循环读数据
+    }
+    HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
+}
+
+// ---------------------------------------------------------
+// 核心函数：擦除一个扇区 (4KB) - ⚠️ 写数据前必须擦除！
+// ---------------------------------------------------------
+void W25Q64_EraseSector(uint8_t dev_index, uint32_t Dst_Addr)
+{
+    Dst_Addr *= 4096; // 把扇区号换算成实际物理地址
+    W25Q64_WriteEnable(dev_index); // 写使能
+    W25Q64_WaitBusy(dev_index);
+
+    GPIO_TypeDef* port = W25Q64_Devs[dev_index].CS_Port;
+    uint16_t pin       = W25Q64_Devs[dev_index].CS_Pin;
+
+    HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
+    SPI_SwapByte(W25X_SectorErase); // 发送擦除指令
+    SPI_SwapByte((uint8_t)((Dst_Addr) >> 16));
+    SPI_SwapByte((uint8_t)((Dst_Addr) >> 8));
+    SPI_SwapByte((uint8_t)Dst_Addr);
+    HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
+    
+    W25Q64_WaitBusy(dev_index); // 等待擦除完成 (最多可能需要 400ms)
+}
+
+// ---------------------------------------------------------
+// 核心函数：页编程 (最大写入 256 字节)
+// ---------------------------------------------------------
+void W25Q64_WritePage(uint8_t dev_index, uint8_t* pBuffer, uint32_t WriteAddr, uint16_t NumByteToWrite)
+{
+    W25Q64_WriteEnable(dev_index); // 写使能
+    
+    GPIO_TypeDef* port = W25Q64_Devs[dev_index].CS_Port;
+    uint16_t pin       = W25Q64_Devs[dev_index].CS_Pin;
+
+    HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
+    SPI_SwapByte(W25X_PageProgram); // 发送写页指令
+    SPI_SwapByte((uint8_t)((WriteAddr) >> 16));
+    SPI_SwapByte((uint8_t)((WriteAddr) >> 8));
+    SPI_SwapByte((uint8_t)WriteAddr);
+    
+    for (uint16_t i = 0; i < NumByteToWrite; i++) {
+        SPI_SwapByte(pBuffer[i]); // 循环写数据
+    }
+    HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
+    
+    W25Q64_WaitBusy(dev_index); // 等待写入完成
 }

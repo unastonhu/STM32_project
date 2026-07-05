@@ -30,6 +30,8 @@
 #include "i2c.h"
 #include "tim.h"
 #include "usart.h"
+#include "dma.h"
+#include "sdio.h"
 
 
 #include "ds18b20.h"
@@ -45,6 +47,7 @@
 #include "bme68x_defs.h"
 
 #include "w25q64.h"
+#include "fatfs.h"
 #include "system_data.h"
 
 /* USER CODE END Includes */
@@ -123,6 +126,7 @@ void StartSonarTask(void *argument);
 void StartHumidityTask(void *argument);
 void StartI2cTask(void *argument);
 
+extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /**
@@ -186,6 +190,8 @@ void MX_FREERTOS_Init(void) {
 /* USER CODE END Header_StartMonitorTask */
 void StartMonitorTask(void *argument)
 {
+  /* init code for USB_DEVICE */
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartMonitorTask */
   (void)argument;
   /* Infinite loop */
@@ -215,8 +221,15 @@ void StartLEDTask(void *argument)
   (void)argument;
 
   W25Q64_Init();
+
   sysData.flash1.id = W25Q64_ReadID(0);
-  sysData.flash2.id = W25Q64_ReadID(1);
+  if (sysData.flash1.id == 0xEF4017) {sysData.flash1.rw_test = W25Q64_SanityCheck(0);
+  }
+
+
+   sysData.flash2.id = W25Q64_ReadID(1);
+   if (sysData.flash2.id == 0xEF4017) sysData.flash2.rw_test = W25Q64_SanityCheck(1);
+
 
 
   /* Infinite loop */

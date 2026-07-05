@@ -48,10 +48,18 @@ typedef struct {
 
 typedef struct {
     uint32_t id;
+    int8_t   rw_test;      //读写健康度 (1:完美通过, -1:损坏, 0:未测试)
     uint32_t total_size_kb; 
     uint32_t used_size_kb;  
     int8_t   status;        
 } W25Q64_Data_t;
+
+// 新增：SD卡 专属数据卡片
+typedef struct {
+    uint8_t  type;          // 卡类型 (如 SDHC, SDXC)
+    uint32_t capacity_mb;   // 总容量 (MB)
+    int8_t   status;        // 状态 (1:在线, 0:离线)
+} SD_Card_Data_t;
 
 typedef struct {
     float    distance;
@@ -75,8 +83,12 @@ typedef struct {
     SGP40_Data_t   sgp40;
     ENV_Data_t     env;
     BME688_Data_t  bme688;
+
     W25Q64_Data_t  flash1;
     W25Q64_Data_t  flash2;
+    
+    SD_Card_Data_t sdcard;
+
     UI_Control_t   ui;
     IR_Sensor_t    ir;
 } SystemData_t;

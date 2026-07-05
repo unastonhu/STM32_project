@@ -42,13 +42,40 @@ void System_PrintStatus(SystemData_t *sys) {
     else printf("[  BME688 ] Error    : Offline!\r\n");
 
     // 7. W25Q64
-    if (sys->flash1.id == 0xEF4017) printf("[ W25Q64_1] Status   : 8MB Flash Ready! (ID: 0x%lX)\r\n", sys->flash1.id);
-    else if (sys->flash1.id == 0 || sys->flash1.id == 0xFFFFFF) printf("[ W25Q64_1] Error    : SPI Offline or Line Disconnected!\r\n");
-    else printf("[ W25Q64_1] Warning  : Unknown ID (Read: 0x%lX)\r\n", sys->flash1.id);
+    if (sys->flash1.id == 0xEF4017) {
+        printf("[ W25Q64_1] Status   : 8MB Flash Ready! (ID: 0x%lX)\r\n", sys->flash1.id);
+        
+        
+        if (sys->flash1.rw_test == 1) {
+            printf("[ W25Q64_1] R/W Test : PASSED (Magic Word Match!)\r\n");
+        } else if (sys->flash1.rw_test == -1) {
+            printf("[ W25Q64_1] R/W Test : FAILED (Storage Damaged!)\r\n");
+        }
+        
+    } else if (sys->flash1.id == 0 || sys->flash1.id == 0xFFFFFF) {
+        printf("[ W25Q64_1] Error    : SPI Offline or Line Disconnected!\r\n");
+    } else {
+        printf("[ W25Q64_1] Warning  : Unknown ID (Read: 0x%lX)\r\n", sys->flash1.id);
+    }
 
-    if (sys->flash2.id == 0xEF4017) printf("[ W25Q64_2] Status   : 8MB Flash Ready! (ID: 0x%lX)\r\n", sys->flash2.id);
-    else if (sys->flash2.id == 0 || sys->flash2.id == 0xFFFFFF) printf("[ W25Q64_2] Error    : SPI Offline or Line Disconnected!\r\n");
-    else printf("[ W25Q64_2] Warning  : Unknown ID (Read: 0x%lX)\r\n", sys->flash2.id);
+if (sys->flash2.id == 0xEF4017) {
+        printf("[ W25Q64_2] Status   : 8MB Flash Ready! (ID: 0x%lX)\r\n", sys->flash2.id);
+        
+        
+        if (sys->flash2.rw_test == 1) {
+            printf("[ W25Q64_2] R/W Test : PASSED (Magic Word Match!)\r\n");
+        } else if (sys->flash2.rw_test == -1) {
+            printf("[ W25Q64_2] R/W Test : FAILED (Storage Damaged!)\r\n");
+        }
+        
+    } else if (sys->flash2.id == 0 || sys->flash2.id == 0xFFFFFF) {
+        printf("[ W25Q64_2] Error    : SPI Offline or Line Disconnected!\r\n");
+    } else {
+        printf("[ W25Q64_2] Warning  : Unknown ID (Read: 0x%lX)\r\n", sys->flash2.id);
+    }
+
+
+
     //  8. 红外对射模块阵列
     printf("[ IR_SENS ] Sensor 1 : %s | Sensor 2 : %s\r\n", 
                sys->ir.ir1_blocked ? "1" : "0", 

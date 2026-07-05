@@ -71,6 +71,8 @@ void Error_Handler(void);
 #define IR_D2_GPIO_Port GPIOD
 #define IR_D1_Pin GPIO_PIN_14
 #define IR_D1_GPIO_Port GPIOD
+#define ds28b20_DQ_Pin GPIO_PIN_8
+#define ds28b20_DQ_GPIO_Port GPIOA
 #define HX711_SCK_Pin GPIO_PIN_0
 #define HX711_SCK_GPIO_Port GPIOD
 #define HX711_DOUT_Pin GPIO_PIN_1

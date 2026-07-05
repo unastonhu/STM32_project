@@ -26,6 +26,22 @@ extern SPI_HandleTypeDef hspi2;
 #define W25Q64_2_CS_PIN     GPIO_PIN_5
 // ==========================================
 
+// ==========================================
+// W25Q64 核心指令表
+// ==========================================
+#define W25X_WriteEnable        0x06 
+#define W25X_ReadStatusReg      0x05 
+#define W25X_ReadData           0x03 
+#define W25X_PageProgram        0x02 
+#define W25X_SectorErase        0x20 
+
+// ==========================================
+// 核心函数 API
+// ==========================================
+void W25Q64_Init(void); // 统一初始化
+uint32_t W25Q64_ReadID(uint8_t dev_index); // 通过编号读取，0 = 第一个芯片，1 = 第二个芯片
+int8_t W25Q64_SanityCheck(uint8_t dev_index);
+
 
 // 内部使用的底层对象结构体
 typedef struct {
@@ -33,11 +49,14 @@ typedef struct {
     uint16_t      CS_Pin;
 } W25Q64_HandleTypeDef;
 
-// 全局声明这个 Flash 硬件阵列
-extern W25Q64_HandleTypeDef W25Q64_Devs[W25Q64_DEVICE_COUNT];
+extern W25Q64_HandleTypeDef W25Q64_Devs[W25Q64_DEVICE_COUNT];// 全局声明这个 Flash 硬件阵列
 
-// 核心函数 API
-void W25Q64_Init(void); // 统一初始化
-uint32_t W25Q64_ReadID(uint8_t dev_index); // 通过编号读取，0 = 第一个芯片，1 = 第二个芯片
+// 裸机读写四个函数，外部调用时请务必传入正确的 dev_index (0 = 第一个芯片，1 = 第二个芯片)
+void W25Q64_ReadData(uint8_t dev_index, uint8_t* pBuffer, uint32_t ReadAddr, uint16_t NumByteToRead);
+void W25Q64_WritePage(uint8_t dev_index, uint8_t* pBuffer, uint32_t WriteAddr, uint16_t NumByteToWrite);
+void W25Q64_EraseSector(uint8_t dev_index, uint32_t Dst_Addr);
+void W25Q64_WaitBusy(uint8_t dev_index);
+
+
 
 #endif /* __W25Q64_H */

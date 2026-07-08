@@ -59,6 +59,14 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define DHT11_DATA_Pin GPIO_PIN_0
 #define DHT11_DATA_GPIO_Port GPIOC
+#define cool_fans_Pin GPIO_PIN_2
+#define cool_fans_GPIO_Port GPIOA
+#define cool_fansA3_Pin GPIO_PIN_3
+#define cool_fansA3_GPIO_Port GPIOA
+#define duct_fans_Pin GPIO_PIN_4
+#define duct_fans_GPIO_Port GPIOA
+#define duct_fansA5_Pin GPIO_PIN_5
+#define duct_fansA5_GPIO_Port GPIOA
 #define LED_1_Pin GPIO_PIN_6
 #define LED_1_GPIO_Port GPIOA
 #define LED_2_Pin GPIO_PIN_7
@@ -67,6 +75,10 @@ void Error_Handler(void);
 #define W25_01_CS_GPIO_Port GPIOC
 #define W25_02_CS_Pin GPIO_PIN_5
 #define W25_02_CS_GPIO_Port GPIOC
+#define ozone_Pin GPIO_PIN_1
+#define ozone_GPIO_Port GPIOB
+#define uv_lamp_Pin GPIO_PIN_2
+#define uv_lamp_GPIO_Port GPIOB
 #define IR_D2_Pin GPIO_PIN_13
 #define IR_D2_GPIO_Port GPIOD
 #define IR_D1_Pin GPIO_PIN_14

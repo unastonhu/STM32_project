@@ -479,40 +479,13 @@ void StartI2cTask(void *argument)
 void StartUSBTask(void *argument)
 {
   /* USER CODE BEGIN StartUSBTask */
-
-  (void)argument;
-
-// 🌟 架构师级防御：使用 static 关键字把 1024 字节的巨型缓冲区从任务栈移到全局 BSS 段
-  // 彻底杜绝 FreeRTOS 任务栈溢出死机的问题！
-  static char usb_tx_buf[1024]; 
-  uint16_t tx_len;
-  
-  // 初始化配置
-  sysData.slow_interval_ms = 30000; // 默认 30秒 慢信号档位
-  sysData.ozone_is_locked = 0;
-  
-  TickType_t last_slow_tick = xTaskGetTickCount();
-  TickType_t current_tick;
-
+  /* Infinite loop */
   for(;;)
   {
-    
-      Control_Update_Routine();
-
-      // 📡 3. 呼叫通讯大队 (智能分发 JSON 快慢信号)
-      USB_Reporter_Routine();   
-
-      // 4. 完美保持 50ms 极高实时性，绝不阻塞！
-      osDelay(50);
-
-      Control_Update_Routine();
-         
-      }
-      /* USER CODE END StartUsbTask */
+    osDelay(1);
   }
-  
-
-  
+  /* USER CODE END StartUSBTask */
+}
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */

@@ -58,6 +58,10 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/w25q64.c
     Core/Inc/system_data.h
     Core/Src/system_data.c
+    Core/Inc/control.h
+    Core/Src/control.c
+    Core/Inc/usb_reporter.h
+    Core/Src/usb_reporter.c
 )
 
 # Add STM32CubeMX generated sources

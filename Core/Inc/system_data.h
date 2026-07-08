@@ -54,7 +54,7 @@ typedef struct {
     int8_t   status;        
 } W25Q64_Data_t;
 
-// 新增：SD卡 专属数据卡片
+// SD卡 专属数据卡片
 typedef struct {
     uint8_t  type;          // 卡类型 (如 SDHC, SDXC)
     uint32_t capacity_mb;   // 总容量 (MB)
@@ -74,7 +74,22 @@ typedef struct {
 } IR_Sensor_t;
 
 // ==========================================
-// 2. 终极系统大盘 (SystemData_t)
+// 2. 继电器执行器阵列 (6路小电流继电器 + 4路大功率制冷)
+// ==========================================
+typedef struct {
+    uint8_t  ozone;         // CH1: 臭氧发生器 (0关/1开)
+    uint8_t  uv_lamp;       // CH2: 紫外线杀菌灯 (0关/1开)
+    
+    // 4 个风扇两两并联，只占 2 个通道
+    uint8_t  cool_fans[2];  // CH3-CH4: 散热大风扇组 (0关/1开，每组带2个)
+    uint8_t  duct_fans[2];  // CH5-CH6: 反应区搅动小风扇组 (0关/1开，每组带2个)
+    
+    // 4 路独立大功率制冷通道
+    uint8_t  coolers[4];    // CH7-CH10: 制冷模块 TEC (0关/1开)
+} Relay_Status_t;
+
+// ==========================================
+// 3. 终极系统大盘 (SystemData_t)
 // ==========================================
 typedef struct {
     HX711_Data_t   hx711;
@@ -86,19 +101,29 @@ typedef struct {
 
     W25Q64_Data_t  flash1;
     W25Q64_Data_t  flash2;
-    
     SD_Card_Data_t sdcard;
 
     UI_Control_t   ui;
     IR_Sensor_t    ir;
 
-    uint8_t esp32_ready; // 0=未握手等待中，1=握手成功开始发业务数据
+    // 补全：将继电器状态卡片收编进系统大盘
+    Relay_Status_t relays;
+
+    // 新增：臭氧高危设备安全锁 (时间戳全用 FreeRTOS 的 Tick)
+    uint32_t ozone_start_tick;  // 记录臭氧开启的时刻
+    uint32_t ozone_lock_tick;   // 记录臭氧进入死锁的时刻
+    uint8_t  ozone_is_locked;   // 核心锁：1=死锁中(绝对无法开启)，0=正常
+    
+    //  补全：新增上位机就绪标志与慢数据档位控制
+    uint8_t  esp32_ready;       // 0=未握手等待中，1=握手成功开始发业务数据
+    uint32_t slow_interval_ms;  // 慢数据上报间隔时间 (ms)
 } SystemData_t;
 
-// 🌟 对外暴露全局数据变量（极其重要，别漏了 extern）
+// 对外暴露全局数据变量
 extern SystemData_t sysData;
 
 // 对外暴露 UI 渲染函数接口
 void System_PrintStatus(SystemData_t *sys);
 
 #endif /* __SYSTEM_DATA_H */
+

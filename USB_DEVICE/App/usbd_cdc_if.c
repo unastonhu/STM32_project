@@ -23,8 +23,11 @@
 
 /* USER CODE BEGIN INCLUDE */
 
-#include "system_data.h" // 引入数据中枢
+// 引入数据中枢
 #include <string.h>      // 需要用到 strstr 和 memset
+#include <stdio.h>
+#include "control.h"
+#include "system_data.h" 
 
 /* USER CODE END INCLUDE */
 
@@ -268,31 +271,73 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
   */
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
-  /* USER CODE BEGIN 6 */
+    /* USER CODE BEGIN 6 */
+    USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
+    USBD_CDC_ReceivePacket(&hUsbDeviceFS);
 
-// 2. 把收到的指令火速拷贝到咱们自己的安全区
-  // (确保接收长度不超过咱们的缓冲区大小)
-  if (*Len < 64) {
+    // 🌟 安全防线：确保字符串有结束符，防止内存越界读到乱码
+    if (*Len > 0 && *Len < 64) {
+        Buf[*Len] = '\0'; 
+        char *json_str = (char *)Buf;
+
+        // ====================================================
+        // 1. 系统握手与档位控制 (互斥操作)
+        // ====================================================
+        if (strstr(json_str, "\"cmd\":\"START\"")) {
+            sysData.esp32_ready = 1; 
+        }
+        else if (strstr(json_str, "\"cmd\":\"MODE_5MIN\"")) {
+            sysData.slow_interval_ms = 300000; 
+        }
+        else if (strstr(json_str, "\"cmd\":\"MODE_30SEC\"")) {
+            sysData.slow_interval_ms = 30000; 
+        }
+
+        // ====================================================
+        // 2. 独立安全设备 (臭氧、紫外线)
+        // ====================================================
+        if (strstr(json_str, "\"oz\":1")) {
+            // 🛡️ 再次确认防线：只有没被死锁，才允许强行开臭氧
+            if (sysData.ozone_is_locked == 0) sysData.relays.ozone = 1;
+        }
+        else if (strstr(json_str, "\"oz\":0")) {
+            sysData.relays.ozone = 0;
+        }
+
+        if (strstr(json_str, "\"uv\":1")) sysData.relays.uv_lamp = 1;
+        else if (strstr(json_str, "\"uv\":0")) sysData.relays.uv_lamp = 0;
+
+        // ====================================================
+        // 3. 高级群组分配 (制冷片、大小风扇组)
+        // 使用 sscanf 动态提取 JSON 里的数字
+        // ====================================================
+        int num = 0;
+        char *ptr;
+
+        // 解析制冷片数量: {"tec": 3}
+        if ((ptr = strstr(json_str, "\"tec\":")) != NULL) {
+            if (sscanf(ptr, "\"tec\":%d", &num) == 1) {
+                Control_Set_Coolers((uint8_t)num); // 呼叫司令部 API
+            }
+        }
+        
+        // 解析散热大风扇数量: {"c_fan": 4}
+        if ((ptr = strstr(json_str, "\"c_fan\":")) != NULL) {
+            if (sscanf(ptr, "\"c_fan\":%d", &num) == 1) {
+                Control_Set_CoolFans((uint8_t)num); // 呼叫司令部 API
+            }
+        }
+        
+        // 解析搅动小风扇数量: {"d_fan": 2}
+        if ((ptr = strstr(json_str, "\"d_fan\":")) != NULL) {
+            if (sscanf(ptr, "\"d_fan\":%d", &num) == 1) {
+                Control_Set_DuctFans((uint8_t)num); // 呼叫司令部 API
+            }
+        }
+    }
     
-      Buf[*Len] = '\0'; 
-      
-      // 2. 解析 ESP32 发来的启动指令
-      if (strstr((const char*)Buf, "\"cmd\":\"START\"") != NULL) {
-          sysData.esp32_ready = 1; // 🌟 收到令牌，状态机切换！
-      }
-      
-      // 如果你以后有控制继电器的指令，可以继续写在这里：
-      // else if (strstr((const char*)Buf, "\"cmd\":\"FAN_ON\"") != NULL) { ... }
-
-
-  }
-
-  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
-  USBD_CDC_ReceivePacket(&hUsbDeviceFS);
-
-  return (USBD_OK);
-
-  /* USER CODE END 6 */
+    return (USBD_OK);
+    /* USER CODE END 6 */
 }
 
 /**

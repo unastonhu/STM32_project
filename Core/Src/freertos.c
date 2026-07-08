@@ -51,11 +51,14 @@
 #include "system_data.h"
 
 #include "usbd_cdc_if.h"
+
+#include "control.h"
+#include "usb_reporter.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
 
 
 /* USER CODE END PTD */
@@ -479,56 +482,36 @@ void StartUSBTask(void *argument)
 
   (void)argument;
 
-  char usb_tx_buf[256]; 
+// 🌟 架构师级防御：使用 static 关键字把 1024 字节的巨型缓冲区从任务栈移到全局 BSS 段
+  // 彻底杜绝 FreeRTOS 任务栈溢出死机的问题！
+  static char usb_tx_buf[1024]; 
   uint16_t tx_len;
+  
+  // 初始化配置
+  sysData.slow_interval_ms = 30000; // 默认 30秒 慢信号档位
+  sysData.ozone_is_locked = 0;
+  
+  TickType_t last_slow_tick = xTaskGetTickCount();
+  TickType_t current_tick;
 
-  /* Infinite loop */
   for(;;)
   {
-    // ====================================================
-      // 状态 1：孤立无援 (ESP32-S3 未就绪，死磕发送心跳包)
-      // ====================================================
-      if (sysData.esp32_ready == 0) {
-          
-          tx_len = sprintf(usb_tx_buf, "{\"device\": \"STM32_Gateway\", \"status\": \"WAITING\", \"token\": \"S3_LINK_OK\"}\r\n");
-          CDC_Transmit_FS((uint8_t*)usb_tx_buf, tx_len);
-          
-          // 没连上时不用着急发，每 2 秒吼一嗓子就行
-          osDelay(2000); 
-      }
-      
-      // ====================================================
-      // 状态 2：握手成功！(ESP32-S3 上线，开始疯狂输出业务数据)
-      // ====================================================
-      else {
-          
-          // 考虑到你要传给 Web 前端，用 JSON 绝对比二进制更优雅、更容易调试！
-          // 这里我们去 sysData 里把各大传感器的数据掏出来打包
-          tx_len = sprintf(usb_tx_buf, 
-              "{\"cmd\":\"DATA\","
-              "\"dht_t\":%d, \"dht_h\":%d,"
-              "\"voc\":%ld, \"weight\":%.1f,"
-              "\"bme_p\":%.1f,"
-              "\"ir_1\":%d,"
-              "\"flash_ok\":%d}\r\n", 
-              sysData.dht11.temp, 
-              sysData.dht11.hum,
-              (long)sysData.sgp40.voc_index,
-              sysData.hx711.weight,
-              sysData.bme688.press,
-              sysData.ir.ir1_blocked,
-              (sysData.flash1.id == 0xEF4017 ? 1 : 0) // 判断 Flash 是否在线
-          );
+    
+      Control_Update_Routine();
 
-          // 把这串满载着冰箱灵魂的数据，一键发射给 ESP32！
-          CDC_Transmit_FS((uint8_t*)usb_tx_buf, tx_len);
-          
-          // 握手成功后，每 100 毫秒（一秒 10 次）刷新一次数据，保证前端界面如丝般顺滑
-          osDelay(100); 
+      // 📡 3. 呼叫通讯大队 (智能分发 JSON 快慢信号)
+      USB_Reporter_Routine();   
+
+      // 4. 完美保持 50ms 极高实时性，绝不阻塞！
+      osDelay(50);
+
+      Control_Update_Routine();
+         
       }
+      /* USER CODE END StartUsbTask */
   }
-  /* USER CODE END StartUsbTask */
-}
+  
+
   
 
 /* Private application code --------------------------------------------------*/

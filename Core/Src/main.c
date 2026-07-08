@@ -56,9 +56,6 @@ uint16_t k230_rx_len = 0;
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
-HAL_UART_Receive_IT(&huart2, &k230_rx_byte, 1);
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -182,7 +179,10 @@ int main(void)
   MX_SPI2_Init();
   MX_SDIO_SD_Init();
   MX_FATFS_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+
+   HAL_UART_Receive_IT(&huart2, &k230_rx_byte, 1);
 
   /* USER CODE END 2 */
 

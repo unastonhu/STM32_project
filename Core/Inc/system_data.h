@@ -91,6 +91,16 @@ typedef struct {
 } Relay_Status_t;
 
 
+// ==========================================
+// 新增：K230 视觉协处理器专属数据卡片
+// ==========================================
+typedef struct {
+    uint16_t apple;
+    uint16_t banana;
+    uint16_t orange;
+    int8_t   status;  // 1:在线, 0:离线
+} K230_Vision_t;
+
 
 // ==========================================
 // 3. 终极系统大盘 (SystemData_t)
@@ -132,15 +142,7 @@ typedef struct {
 
 
 
-// ==========================================
-// 新增：K230 视觉协处理器专属数据卡片
-// ==========================================
-typedef struct {
-    uint16_t apple;
-    uint16_t banana;
-    uint16_t orange;
-    int8_t   status;  // 1:在线, 0:离线
-} K230_Vision_t;
+
 
 
 // 对外暴露全局数据变量

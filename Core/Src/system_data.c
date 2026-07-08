@@ -93,6 +93,23 @@ void System_PrintStatus(SystemData_t *sys) {
            sys->esp32_ready ? "CONNECTED " : "DISCONNECTED ",
            (float)sys->slow_interval_ms / 1000.0f);
 
+     printf("[ USB_LINK ] Ozone Lock : %s\r\n", sys->ozone_is_locked ? "LOCKED" : "UNLOCKED");
+     
+     printf("[ USB_LINK ] K230 Vision : %s | Apple: %d | Banana: %d | Orange: %d\r\n",
+           sys->k230.status ? "ONLINE " : "OFFLINE ",
+           sys->k230.apple, sys->k230.banana, sys->k230.orange);
+
+     printf("[ USB_LINK ] Last ESP32 Heartbeat: %lu ticks ago\r\n", (unsigned long)(xTaskGetTickCount() - sys->last_esp32_heartbeat));
+
+     printf("[ USB_LINK ] Ozone Lock Timestamp: %lu | Ozone Start Timestamp: %lu\r\n", 
+           (unsigned long)sys->ozone_lock_tick, (unsigned long)sys->ozone_start_tick);
+           
+     printf("[ USB_LINK ] System Tick Count: %lu\r\n", (unsigned long)xTaskGetTickCount());
+     
+     
+
+
+
     printf("====================================================================================\r\n");
 }
 

@@ -87,5 +87,5 @@ void USB_Reporter_Routine(void)
     
     last_slow_tick = current_tick; 
 }
-            
+}  }
             

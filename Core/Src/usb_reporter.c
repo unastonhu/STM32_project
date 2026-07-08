@@ -6,6 +6,8 @@
 
 #include "task.h"
 #include <stdio.h>
+#include <string.h>
+#include "system_data.h"
 
 
 // 🌟 架构师级防御：1024 字节巨型静态缓冲，彻底脱离 FreeRTOS 任务栈
@@ -48,39 +50,42 @@ void USB_Reporter_Routine(void)
         while(CDC_Transmit_FS((uint8_t*)usb_tx_buf, tx_len) == USBD_BUSY) { osDelay(1); }
 
         // 🐢 【发送慢信号】(按档位时间发送)
-        if ((current_tick - last_slow_tick) * portTICK_PERIOD_MS >= sysData.slow_interval_ms) {
+       if ((current_tick - last_slow_tick) * portTICK_PERIOD_MS >= sysData.slow_interval_ms) {
             
-            tx_len = snprintf(usb_tx_buf, sizeof(usb_tx_buf), 
-                "{\"cmd\":\"SLOW\","
-                "\"hx\":{\"w\":%.1f,\"s\":%d},"
-                "\"dht\":{\"t\":%d,\"h\":%d,\"s\":%d},"
-                "\"ds\":{\"t\":%.2f,\"s\":%d},"
-                "\"sgp\":{\"v\":%ld,\"r\":%u,\"s\":%d},"
-                "\"env\":{\"at\":%.1f,\"ah\":%.1f,\"tv\":%u,\"co\":%u,\"aq\":%d,\"s\":%d},"
-                "\"bme\":{\"t\":%.1f,\"h\":%.1f,\"p\":%.1f,\"g\":%.0f,\"s\":%d},"
-                "\"mem\":{\"f1\":%d,\"f2\":%d,\"sd\":%d},"
-                "\"enose\":{\"mode\":%d,\"state\":%d}," 
-                "\"relays\":{\"oz\":%d,\"uv\":%d,\"cf\":[%d,%d],\"df\":[%d,%d],\"tec\":[%d,%d,%d,%d]}"
-                "}\r\n", 
-                
-                sysData.hx711.weight, sysData.hx711.status,
-                sysData.dht11.temp, sysData.dht11.hum, sysData.dht11.status,
-                sysData.ds18b20.temp, sysData.ds18b20.status,
-                (long)sysData.sgp40.voc_index, sysData.sgp40.raw, sysData.sgp40.status,
-                sysData.env.aht_temp, sysData.env.aht_hum, sysData.env.ens_tvoc, sysData.env.ens_eco2, sysData.env.ens_aqi, sysData.env.status,
-                sysData.bme688.temp, sysData.bme688.hum, sysData.bme688.press, sysData.bme688.gas_res, sysData.bme688.status,
-                sysData.flash1.rw_test, sysData.flash2.rw_test, sysData.sdcard.status,
-                (int)sysData.enose.mode, (int)sysData.enose.state,
-                sysData.relays.ozone, sysData.relays.uv_lamp,
-                sysData.relays.cool_fans[0], sysData.relays.cool_fans[1],
-                sysData.relays.duct_fans[0], sysData.relays.duct_fans[1],
-                sysData.relays.coolers[0], sysData.relays.coolers[1], sysData.relays.coolers[2], sysData.relays.coolers[3]
-            );
-            
-            // 关键防御：只有快信号缓冲区彻底发完，才会把慢信号挤进发送管道
-            while(CDC_Transmit_FS((uint8_t*)usb_tx_buf, tx_len) == USBD_BUSY) { osDelay(1); }
-            
-            last_slow_tick = current_tick; // 重置秒表
-        }
-    }
+    tx_len = snprintf(usb_tx_buf, sizeof(usb_tx_buf), 
+        "{\"cmd\":\"SLOW\","
+        "\"hx\":{\"w\":%.1f,\"s\":%d},"
+        "\"dht\":{\"t\":%d,\"h\":%d,\"s\":%d},"
+        "\"ds\":{\"t\":%.2f,\"s\":%d},"
+        "\"sgp\":{\"v\":%ld,\"r\":%u,\"s\":%d},"
+        "\"env\":{\"at\":%.1f,\"ah\":%.1f,\"tv\":%u,\"co\":%u,\"aq\":%d,\"s\":%d},"
+        "\"bme\":{\"t\":%.1f,\"h\":%.1f,\"p\":%.1f,\"g\":%.0f,\"s\":%d},"
+        "\"mem\":{\"f1\":%d,\"f2\":%d,\"sd\":%d},"
+        "\"enose\":{\"mode\":%d,\"state\":%d}," 
+        "\"k230\":{\"ap\":%d,\"bn\":%d,\"or\":%d}," // 🌟 1. 在这里加上 K230 的 JSON 占位符
+        "\"relays\":{\"oz\":%d,\"uv\":%d,\"cf\":[%d,%d],\"df\":[%d,%d],\"tec\":[%d,%d,%d,%d]}"
+        "}\r\n", 
+        
+        sysData.hx711.weight, sysData.hx711.status,
+        sysData.dht11.temp, sysData.dht11.hum, sysData.dht11.status,
+        sysData.ds18b20.temp, sysData.ds18b20.status,
+        (long)sysData.sgp40.voc_index, sysData.sgp40.raw, sysData.sgp40.status,
+        sysData.env.aht_temp, sysData.env.aht_hum, sysData.env.ens_tvoc, sysData.env.ens_eco2, sysData.env.ens_aqi, sysData.env.status,
+        sysData.bme688.temp, sysData.bme688.hum, sysData.bme688.press, sysData.bme688.gas_res, sysData.bme688.status,
+        sysData.flash1.rw_test, sysData.flash2.rw_test, sysData.sdcard.status,
+        (int)sysData.enose.mode, (int)sysData.enose.state,
+        
+        sysData.k230.apple, sysData.k230.banana, sysData.k230.orange, // 🌟 2. 在这里把全局大盘的水果变量灌进去
+
+        sysData.relays.ozone, sysData.relays.uv_lamp,
+        sysData.relays.cool_fans[0], sysData.relays.cool_fans[1],
+        sysData.relays.duct_fans[0], sysData.relays.duct_fans[1],
+        sysData.relays.coolers[0], sysData.relays.coolers[1], sysData.relays.coolers[2], sysData.relays.coolers[3]
+    );
+    
+    while(CDC_Transmit_FS((uint8_t*)usb_tx_buf, tx_len) == USBD_BUSY) { osDelay(1); }
+    
+    last_slow_tick = current_tick; 
 }
+            
+            

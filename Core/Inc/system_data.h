@@ -115,6 +115,8 @@ typedef struct {
 
     // 补全：将继电器状态卡片收编进系统大盘
     Relay_Status_t relays;
+    
+    uint32_t last_esp32_heartbeat;
 
     K230_Vision_t  k230;
 

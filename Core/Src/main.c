@@ -34,25 +34,83 @@
 /* USER CODE BEGIN Includes */
 
 #include <stdio.h>
+#include <string.h>
+
 #include "ds18b20.h"
 #include "hcsr04.h"
 #include "hx711.h"
 #include "dht11.h"
+
+#include "system_data.h"
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+uint8_t k230_rx_byte;       
+char    k230_rx_buf[128];   
+uint16_t k230_rx_len = 0;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+HAL_UART_Receive_IT(&huart2, &k230_rx_byte, 1);
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+
+// 串口接收完成中断回调函数
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    // 判断是不是 USART2 触发的中断
+    if (huart->Instance == USART2) {
+        
+        // 如果收到了换行符，说明 K230 的一帧 JSON 发完了
+        if (k230_rx_byte == '\n') {
+            k230_rx_buf[k230_rx_len] = '\0'; // 加上字符串结束符
+            
+            // 🌟 极速正则解析 JSON 🌟
+            if (strstr(k230_rx_buf, "\"cmd\":\"AI_FRUIT\"") != NULL || 
+                strstr(k230_rx_buf, "\"cmd\": \"AI_FRUIT\"") != NULL) {
+                
+                char *ptr;
+                int temp_val = 0;
+                if ((ptr = strstr(k230_rx_buf, "\"apple\":")) != NULL) {
+                    if (sscanf(ptr + 8, "%d", &temp_val) == 1) sysData.k230.apple = temp_val;
+                }
+                if ((ptr = strstr(k230_rx_buf, "\"banana\":")) != NULL) {
+                    if (sscanf(ptr + 9, "%d", &temp_val) == 1) sysData.k230.banana = temp_val;
+                }
+                if ((ptr = strstr(k230_rx_buf, "\"orange\":")) != NULL) {
+                    if (sscanf(ptr + 9, "%d", &temp_val) == 1) sysData.k230.orange = temp_val;
+                }
+                
+                // 标记视觉模块在线
+                sysData.k230.status = 1; 
+            }
+            
+            // 清空长度，准备接收下一帧
+            k230_rx_len = 0; 
+        } 
+        else if (k230_rx_byte != '\r') {
+            // 如果不是回车符，就把字符存进缓冲区
+            if (k230_rx_len < sizeof(k230_rx_buf) - 1) {
+                k230_rx_buf[k230_rx_len++] = k230_rx_byte;
+            } else {
+                // 防溢出保护：如果超过128字节还没收到换行，强行清空
+                k230_rx_len = 0; 
+            }
+        }
+        
+        // 🌟 重新开启中断接收下一个字节 🌟
+        HAL_UART_Receive_IT(&huart2, &k230_rx_byte, 1);
+    }
+}
 
 /* USER CODE END PM */
 

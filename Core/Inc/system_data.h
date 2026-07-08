@@ -116,6 +116,8 @@ typedef struct {
     // 补全：将继电器状态卡片收编进系统大盘
     Relay_Status_t relays;
 
+    K230_Vision_t  k230;
+
     // 新增：臭氧高危设备安全锁 (时间戳全用 FreeRTOS 的 Tick)
     uint32_t ozone_start_tick;  // 记录臭氧开启的时刻
     uint32_t ozone_lock_tick;   // 记录臭氧进入死锁的时刻
@@ -125,6 +127,19 @@ typedef struct {
     uint8_t  esp32_ready;       // 0=未握手等待中，1=握手成功开始发业务数据
     uint32_t slow_interval_ms;  // 慢数据上报间隔时间 (ms)
 } SystemData_t;
+
+
+
+// ==========================================
+// 新增：K230 视觉协处理器专属数据卡片
+// ==========================================
+typedef struct {
+    uint16_t apple;
+    uint16_t banana;
+    uint16_t orange;
+    int8_t   status;  // 1:在线, 0:离线
+} K230_Vision_t;
+
 
 // 对外暴露全局数据变量
 extern SystemData_t sysData;

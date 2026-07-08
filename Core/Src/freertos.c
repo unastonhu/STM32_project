@@ -301,16 +301,21 @@ void StartSonarTask(void *argument)
     // 3. 等待声波返回 (强制等 60ms)
     osDelay(60); 
     
+    float temp_dist  = 0.0f; // 临时变量，存储测距结果
     // 4. 获取距离并打印
     float distance = HCSR04_GetDistance();
     if(distance > 0.0f)
     {
         printf("[ HC-SR04 ] Distance : %.1f cm\r\n", distance);
+        temp_dist  = distance;
     }
     else
     {
         printf("[Sonar Task] Measurement Error\r\n");
+        temp_dist = -1.0f; // 错误码
     }
+
+    sysData.ui.distance = temp_dist;
 
     // 5. 休息一下，开启下一次测距
     osDelay(500);
@@ -480,10 +485,41 @@ void StartUSBTask(void *argument)
 {
   /* USER CODE BEGIN StartUSBTask */
   /* Infinite loop */
+   (void)argument;
+
+// 🌟 架构师级防御：使用 static 关键字把 1024 字节的巨型缓冲区从任务栈移到全局 BSS 段
+  // 彻底杜绝 FreeRTOS 任务栈溢出死机的问题！
+  static char usb_tx_buf[1024]; 
+  uint16_t tx_len;
+  
+  // 初始化配置
+  sysData.slow_interval_ms = 60000; // 默认 60秒 慢信号档位
+  sysData.ozone_is_locked = 0;
+  
+  TickType_t last_slow_tick = xTaskGetTickCount();
+  TickType_t current_tick;
+
+   // 1. 初始化通讯部时间戳
+  USB_Reporter_Init(); 
+
+  // 🌟 新增：唤醒 AI 电子鼻大脑
+  Control_ENose_Init();
+
   for(;;)
   {
-    osDelay(1);
-  }
+     Control_ENose_Tick();
+     
+      Control_Update_Routine();
+
+      // 📡 3. 呼叫通讯大队 (智能分发 JSON 快慢信号)
+      USB_Reporter_Routine();   
+
+      // 4. 完美保持 50ms 极高实时性，绝不阻塞！
+      osDelay(1000);
+
+      Control_Update_Routine();
+         
+      }
   /* USER CODE END StartUSBTask */
 }
 

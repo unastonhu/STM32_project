@@ -2,6 +2,8 @@
 #define __SYSTEM_DATA_H
 
 #include "main.h"
+#include "enose.h"
+
 
 // ==========================================
 // 1. 各大子系统专属数据卡片
@@ -88,6 +90,8 @@ typedef struct {
     uint8_t  coolers[4];    // CH7-CH10: 制冷模块 TEC (0关/1开)
 } Relay_Status_t;
 
+
+
 // ==========================================
 // 3. 终极系统大盘 (SystemData_t)
 // ==========================================
@@ -105,6 +109,9 @@ typedef struct {
 
     UI_Control_t   ui;
     IR_Sensor_t    ir;
+
+    //AI 电子鼻状态机
+    ENose_t        enose;
 
     // 补全：将继电器状态卡片收编进系统大盘
     Relay_Status_t relays;

@@ -62,6 +62,8 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/control.c
     Core/Inc/usb_reporter.h
     Core/Src/usb_reporter.c
+    Core/Inc/enose.h
+    Core/Src/enose.c
 )
 
 # Add STM32CubeMX generated sources

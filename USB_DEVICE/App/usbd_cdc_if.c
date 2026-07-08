@@ -28,6 +28,9 @@
 #include <stdio.h>
 #include "control.h"
 #include "system_data.h" 
+#include "usb_reporter.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 /* USER CODE END INCLUDE */
 
@@ -334,6 +337,29 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
                 Control_Set_DuctFans((uint8_t)num); // 呼叫司令部 API
             }
         }
+
+        if ((ptr = strstr(json_str, "\"d_fan\":")) != NULL) {
+            if (sscanf(ptr, "\"d_fan\":%d", &num) == 1) {
+                Control_Set_DuctFans((uint8_t)num); // 呼叫司令部 API
+            }
+        }
+        
+        // 新增：AI 电子鼻“一键示教”解析
+        // 网页端下发如 {"teach": 0} (0=新鲜, 1=成熟, 2=过熟, 3=腐败)
+        if ((ptr = strstr(json_str, "\"teach\":")) != NULL) {
+            if (sscanf(ptr, "\"teach\":%d", &num) == 1) {
+                uint32_t now = xTaskGetTickCount();
+                // 1. 强行切入学习模式
+                ENose_SetMode(&sysData.enose, MODE_LEARN, now);
+                // 2. 将当前的传感器气味指纹打上标签
+                ENose_TeachCurrent(&sysData.enose, (ENose_State_t)num);
+                // 3. 切回全自动运行模式
+                ENose_SetMode(&sysData.enose, MODE_RUN, now);
+            }
+        }
+
+
+
     }
     
     return (USBD_OK);

@@ -136,3 +136,66 @@ void Control_Set_DuctFans(uint8_t count)
     }
 }
 
+// [公开 API] 高级外设数量分配中心
+// ===========================================================================
+
+/**
+  * @brief  初始化电子鼻参数 (在系统启动时调用一次)
+  */
+void Control_ENose_Init(void)
+{
+    ENose_Init(&sysData.enose);
+    // 失重通道量程定制：假设初始水果 500g，允许 15% 失重，就是 75g
+    sysData.enose.scale[4] = 75.0f; 
+}
+
+/**
+  * @brief  电子鼻感知与自主决策引擎 (每秒执行一次)
+  */
+void Control_ENose_Tick(void)
+{
+    static TickType_t last_enose_tick = 0;
+    TickType_t current_tick = xTaskGetTickCount();
+
+    // 电子鼻不需要 50ms 那么快，每 1 0秒 (10000ms) 嗅探一次足够了
+    if ((current_tick - last_enose_tick) >= 10000) {
+        
+        // 1. 采集 5 路传感器特征值，对齐通道
+        float raw[ENOSE_NUM_CH] = {
+            (float)sysData.sgp40.raw,      // [0] SGP40 VOC 原始值
+            (float)sysData.env.ens_tvoc,   // [1] ENS160 TVOC
+            (float)sysData.env.ens_eco2,   // [2] ENS160 eCO2
+            sysData.bme688.gas_res,        // [3] BME688 气体电阻
+            sysData.hx711.weight           // [4] HX711 称重
+        };
+
+        // 2. 喂给 AI 引擎，获取当前状态
+        // 参数 dt_min 是时间增量，1秒 = 1.0/60.0 分钟
+        ENose_State_t state = ENose_Tick(&sysData.enose, raw, current_tick, 1.0f/60.0f);
+
+        // 3. 🌟 全自动接管：如果 AI 处于运行状态，自动控制执行器！
+        if (sysData.enose.mode == MODE_RUN) {
+            switch (state) {
+                case ENOSE_FRESH:
+                    // 新鲜：维持低功耗，全部关停
+                    Control_Set_Coolers(0); Control_Set_DuctFans(0); sysData.relays.uv_lamp = 0;
+                    break;
+                case ENOSE_RIPENING:
+                    // 成熟：开启轻度保鲜
+                    Control_Set_Coolers(1); Control_Set_DuctFans(2); sysData.relays.uv_lamp = 0;
+                    break;
+                case ENOSE_OVERRIPE:
+                    // 过熟：火力全开抑制腐败，开启杀菌
+                    Control_Set_Coolers(4); Control_Set_DuctFans(4); sysData.relays.uv_lamp = 1;
+                    break;
+                case ENOSE_SPOILED:
+                    // 腐烂：疯狂排气，触发上位机报警 (臭氧由防卫逻辑单独管，此处不乱开)
+                    Control_Set_Coolers(0); Control_Set_DuctFans(4); sysData.relays.uv_lamp = 1;
+                    break;
+                default:
+                    break;
+            }
+        }
+        last_enose_tick = current_tick;
+    }
+}

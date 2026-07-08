@@ -33,7 +33,6 @@
 #include "dma.h"
 #include "sdio.h"
 
-
 #include "ds18b20.h"
 #include "hcsr04.h"
 #include "hx711.h"
@@ -48,8 +47,10 @@
 
 #include "w25q64.h"
 #include "fatfs.h"
+#include "ff.h"
 #include "system_data.h"
 
+#include "usbd_cdc_if.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -72,11 +73,11 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 
-
-
 extern TIM_HandleTypeDef htim4;
 
-
+uint8_t usb_rx_buffer[64] = {0};
+uint8_t usb_rx_flag = 0;
+uint32_t usb_rx_len = 0;
 
 /* USER CODE END Variables */
 /* Definitions for Task_Monitor */
@@ -114,6 +115,13 @@ const osThreadAttr_t Task_I2C_attributes = {
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
+/* Definitions for Task_USB */
+osThreadId_t Task_USBHandle;
+const osThreadAttr_t Task_USB_attributes = {
+  .name = "Task_USB",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityAboveNormal,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -125,6 +133,7 @@ void StartLEDTask(void *argument);
 void StartSonarTask(void *argument);
 void StartHumidityTask(void *argument);
 void StartI2cTask(void *argument);
+void StartUSBTask(void *argument);
 
 extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -171,6 +180,9 @@ void MX_FREERTOS_Init(void) {
   /* creation of Task_I2C */
   Task_I2CHandle = osThreadNew(StartI2cTask, NULL, &Task_I2C_attributes);
 
+  /* creation of Task_USB */
+  Task_USBHandle = osThreadNew(StartUSBTask, NULL, &Task_USB_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -203,6 +215,7 @@ void StartMonitorTask(void *argument)
 
     // 2. 每隔 5 秒打印一次
     osDelay(5000);
+
 
   }
   /* USER CODE END StartMonitorTask */
@@ -452,6 +465,71 @@ void StartI2cTask(void *argument)
   }
   /* USER CODE END StartI2cTask */
 }
+
+/* USER CODE BEGIN Header_StartUSBTask */
+/**
+* @brief Function implementing the Task_USB thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartUSBTask */
+void StartUSBTask(void *argument)
+{
+  /* USER CODE BEGIN StartUSBTask */
+
+  (void)argument;
+
+  char usb_tx_buf[256]; 
+  uint16_t tx_len;
+
+  /* Infinite loop */
+  for(;;)
+  {
+    // ====================================================
+      // 状态 1：孤立无援 (ESP32-S3 未就绪，死磕发送心跳包)
+      // ====================================================
+      if (sysData.esp32_ready == 0) {
+          
+          tx_len = sprintf(usb_tx_buf, "{\"device\": \"STM32_Gateway\", \"status\": \"WAITING\", \"token\": \"S3_LINK_OK\"}\r\n");
+          CDC_Transmit_FS((uint8_t*)usb_tx_buf, tx_len);
+          
+          // 没连上时不用着急发，每 2 秒吼一嗓子就行
+          osDelay(2000); 
+      }
+      
+      // ====================================================
+      // 状态 2：握手成功！(ESP32-S3 上线，开始疯狂输出业务数据)
+      // ====================================================
+      else {
+          
+          // 考虑到你要传给 Web 前端，用 JSON 绝对比二进制更优雅、更容易调试！
+          // 这里我们去 sysData 里把各大传感器的数据掏出来打包
+          tx_len = sprintf(usb_tx_buf, 
+              "{\"cmd\":\"DATA\","
+              "\"dht_t\":%d, \"dht_h\":%d,"
+              "\"voc\":%ld, \"weight\":%.1f,"
+              "\"bme_p\":%.1f,"
+              "\"ir_1\":%d,"
+              "\"flash_ok\":%d}\r\n", 
+              sysData.dht11.temp, 
+              sysData.dht11.hum,
+              (long)sysData.sgp40.voc_index,
+              sysData.hx711.weight,
+              sysData.bme688.press,
+              sysData.ir.ir1_blocked,
+              (sysData.flash1.id == 0xEF4017 ? 1 : 0) // 判断 Flash 是否在线
+          );
+
+          // 把这串满载着冰箱灵魂的数据，一键发射给 ESP32！
+          CDC_Transmit_FS((uint8_t*)usb_tx_buf, tx_len);
+          
+          // 握手成功后，每 100 毫秒（一秒 10 次）刷新一次数据，保证前端界面如丝般顺滑
+          osDelay(100); 
+      }
+  }
+  /* USER CODE END StartUsbTask */
+}
+  
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */

@@ -23,6 +23,9 @@
 
 /* USER CODE BEGIN INCLUDE */
 
+#include "system_data.h" // 引入数据中枢
+#include <string.h>      // 需要用到 strstr 和 memset
+
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,6 +34,11 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+
+extern uint8_t usb_rx_buffer[64]; // 接收缓冲区
+extern uint8_t usb_rx_flag;       // 接收完成标志位
+extern uint32_t usb_rx_len;       // 接收到的数据长度
+
 
 /* USER CODE END PV */
 
@@ -261,9 +269,29 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
+
+// 2. 把收到的指令火速拷贝到咱们自己的安全区
+  // (确保接收长度不超过咱们的缓冲区大小)
+  if (*Len < 64) {
+    
+      Buf[*Len] = '\0'; 
+      
+      // 2. 解析 ESP32 发来的启动指令
+      if (strstr((const char*)Buf, "\"cmd\":\"START\"") != NULL) {
+          sysData.esp32_ready = 1; // 🌟 收到令牌，状态机切换！
+      }
+      
+      // 如果你以后有控制继电器的指令，可以继续写在这里：
+      // else if (strstr((const char*)Buf, "\"cmd\":\"FAN_ON\"") != NULL) { ... }
+
+
+  }
+
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+
   return (USBD_OK);
+
   /* USER CODE END 6 */
 }
 

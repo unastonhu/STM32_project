@@ -91,6 +91,8 @@ typedef struct {
 
     UI_Control_t   ui;
     IR_Sensor_t    ir;
+
+    uint8_t esp32_ready; // 0=未握手等待中，1=握手成功开始发业务数据
 } SystemData_t;
 
 // 🌟 对外暴露全局数据变量（极其重要，别漏了 extern）

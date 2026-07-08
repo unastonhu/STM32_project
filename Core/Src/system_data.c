@@ -1,5 +1,8 @@
 #include "system_data.h"
 #include <stdio.h> // 需要用到 printf
+#include "FreeRTOS.h"
+#include "task.h"
+
 
 // 这里是全系统唯一一次实例化！真正的物理内存开辟在这里！
 SystemData_t sysData = {0}; // {0} 保证开机时所有状态默认都是 0 (离线/初始状态/全关)

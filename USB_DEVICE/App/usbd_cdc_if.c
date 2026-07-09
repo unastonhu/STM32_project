@@ -281,7 +281,8 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
     if (*Len > 0 && *Len < 64) {
         Buf[*Len] = '\0'; 
         char *json_str = (char *)Buf;
-sysData.last_esp32_heartbeat = xTaskGetTickCount();}
+sysData.last_esp32_heartbeat = HAL_GetTick();
+                                }
 
     // 🌟 安全防线：确保字符串有结束符，防止内存越界读到乱码
     if (*Len > 0 && *Len < 64) {

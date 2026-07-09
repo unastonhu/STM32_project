@@ -20,14 +20,14 @@ static TickType_t last_wait_tick = 0;
 void USB_Reporter_Init(void)
 {
     sysData.slow_interval_ms = 30000; // 默认半分钟慢跑档位
-    last_slow_tick = xTaskGetTickCount();
-    last_wait_tick = xTaskGetTickCount();
+    last_slow_tick = HAL_GetTick();
+    last_wait_tick = HAL_GetTick();
 }
 
 void USB_Reporter_Routine(void)
 {
     uint16_t tx_len;
-    TickType_t current_tick = xTaskGetTickCount();
+    TickType_t current_tick = HAL_GetTick();
 
     if (sysData.esp32_ready == 0) {
         // --- 1. 未握手状态：每 2 秒发一次心跳，绝不堵死 CPU ---

@@ -73,7 +73,7 @@ void System_PrintStatus(SystemData_t *sys) {
     if (sys->ir.status == 1) printf("[ IR_SENS  ] Status   : Both Sensors Blocked!\r\n");
     else printf("[ IR_SENS  ] Status   : Sensors Clear!\r\n");
 
-    // 🌟 10. 新增：14路执行器状态看板 (工业级美化打印)
+    //  10. 新增：14路执行器状态看板 (工业级美化打印)
     printf("---------------------------- ACTUATORS & LINK ---------------------------------\r\n");
     printf("[  PURIFY  ] Ozone Gas: %s          | UV Sterilizer: %s\r\n",
            sys->relays.ozone ? "ON " : "OFF", 
@@ -91,7 +91,7 @@ void System_PrintStatus(SystemData_t *sys) {
            sys->relays.coolers[0] ? "ON " : "OFF", sys->relays.coolers[1] ? "ON " : "OFF",
            sys->relays.coolers[2] ? "ON " : "OFF", sys->relays.coolers[3] ? "ON " : "OFF");
 
-    // 🌟 11. 新增：ESP32 通讯链路大盘状态
+    //  11. 新增：ESP32 通讯链路大盘状态
     printf("[ USB_LINK ] ESP32 Status: %s | Report Interval: %.1f sec\r\n",
            sys->esp32_ready ? "CONNECTED " : "DISCONNECTED ",
            (float)sys->slow_interval_ms / 1000.0f);

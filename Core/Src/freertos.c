@@ -441,7 +441,7 @@ void StartI2cTask(void *argument)
           }
           else
           {
-              // 🚨 故障处理：AHT21 彻底没拿到数据
+              //故障处理：AHT21 彻底没拿到数据
               // 既不喂假数据，也不触发补偿，防止 SGP40 算法崩溃
               sysData.sgp40.status = -2; // 在黑板上标记：环境数据不可用
           }
@@ -502,22 +502,22 @@ void StartUSBTask(void *argument)
    // 1. 初始化通讯部时间戳
   USB_Reporter_Init(); 
 
-  // 🌟 新增：唤醒 AI 电子鼻大脑
+  // 新增：唤醒 AI 电子鼻大脑
   Control_ENose_Init();
 
   for(;;)
   {
-     Control_ENose_Tick();
+      Control_ENose_Tick();
      
       Control_Update_Routine();
 
-      // 📡 3. 呼叫通讯大队 (智能分发 JSON 快慢信号)
+      //3. 呼叫通讯大队 (智能分发 JSON 快慢信号)
       USB_Reporter_Routine();   
 
-      // 4. 完美保持 50ms 极高实时性，绝不阻塞！
+      // 4. 完美保持极高实时性，绝不阻塞！
       osDelay(1000);
 
-      Control_Update_Routine();
+      
          
       }
   /* USER CODE END StartUSBTask */

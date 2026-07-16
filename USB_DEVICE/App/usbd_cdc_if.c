@@ -284,7 +284,7 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 sysData.last_esp32_heartbeat = HAL_GetTick();
                                 }
 
-    // 🌟 安全防线：确保字符串有结束符，防止内存越界读到乱码
+    // 安全防线：确保字符串有结束符，防止内存越界读到乱码
     if (*Len > 0 && *Len < 64) {
         Buf[*Len] = '\0'; 
         char *json_str = (char *)Buf;
@@ -302,9 +302,10 @@ sysData.last_esp32_heartbeat = HAL_GetTick();
             sysData.slow_interval_ms = 30000; 
         }
 
-        // ====================================================
+        // =========================================================
         // 2. 独立安全设备 (臭氧、紫外线)
-        // ====================================================
+        // =========================================================
+
         if (strstr(json_str, "\"oz\":1")) {
             // 🛡️ 再次确认防线：只有没被死锁，才允许强行开臭氧
             if (sysData.ozone_is_locked == 0) sysData.relays.ozone = 1;
@@ -316,10 +317,11 @@ sysData.last_esp32_heartbeat = HAL_GetTick();
         if (strstr(json_str, "\"uv\":1")) sysData.relays.uv_lamp = 1;
         else if (strstr(json_str, "\"uv\":0")) sysData.relays.uv_lamp = 0;
 
-        // ====================================================
+        // ==========================================================
         // 3. 高级群组分配 (制冷片、大小风扇组)
         // 使用 sscanf 动态提取 JSON 里的数字
-        // ====================================================
+        // ==========================================================
+        
         int num = 0;
         char *ptr;
 

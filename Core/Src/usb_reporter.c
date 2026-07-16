@@ -19,7 +19,7 @@ static TickType_t last_wait_tick = 0;
 
 void USB_Reporter_Init(void)
 {
-    sysData.slow_interval_ms = 30000; // 默认半分钟慢跑档位
+    sysData.slow_interval_ms = 10000; // 默认半分钟慢跑档位
     last_slow_tick = HAL_GetTick();
     last_wait_tick = HAL_GetTick();
 }
@@ -41,7 +41,7 @@ void USB_Reporter_Routine(void)
     else {
         // --- 2. 握手成功：数据狂飙状态 ---
         
-        // ⚡ 【发送快信号】(每次执行都发，跟进外层任务的 50ms 频率)
+        // 【发送快信号】(每次执行都发，跟进外层任务的 50ms 频率)
         tx_len = snprintf(usb_tx_buf, sizeof(usb_tx_buf), 
             "{\"cmd\":\"FAST\",\"dist\":%.1f,\"ir1\":%d,\"ir2\":%d,\"oz_lock\":%d}\r\n", 
             sysData.ui.distance, sysData.ir.ir1_blocked, sysData.ir.ir2_blocked, sysData.ozone_is_locked);
@@ -49,7 +49,7 @@ void USB_Reporter_Routine(void)
         // 关键防御：发送快信号，并等待底层 USB 接口释放（通常只需几微秒）
         while(CDC_Transmit_FS((uint8_t*)usb_tx_buf, tx_len) == USBD_BUSY) { osDelay(1); }
 
-        // 🐢 【发送慢信号】(按档位时间发送)
+        // 【发送慢信号】(按档位时间发送)
        if ((current_tick - last_slow_tick) * portTICK_PERIOD_MS >= sysData.slow_interval_ms) {
             
     tx_len = snprintf(usb_tx_buf, sizeof(usb_tx_buf), 
@@ -62,7 +62,7 @@ void USB_Reporter_Routine(void)
         "\"bme\":{\"t\":%.1f,\"h\":%.1f,\"p\":%.1f,\"g\":%.0f,\"s\":%d},"
         "\"mem\":{\"f1\":%d,\"f2\":%d,\"sd\":%d},"
         "\"enose\":{\"mode\":%d,\"state\":%d}," 
-        "\"k230\":{\"ap\":%d,\"bn\":%d,\"or\":%d}," // 🌟 1. 在这里加上 K230 的 JSON 占位符
+        "\"k230\":{\"ap\":%d,\"bn\":%d,\"or\":%d}," //  1. 在这里加上 K230 的 JSON 占位符
         "\"relays\":{\"oz\":%d,\"uv\":%d,\"cf\":[%d,%d],\"df\":[%d,%d],\"tec\":[%d,%d,%d,%d]}"
         "}\r\n", 
         
@@ -75,7 +75,7 @@ void USB_Reporter_Routine(void)
         sysData.flash1.rw_test, sysData.flash2.rw_test, sysData.sdcard.status,
         (int)sysData.enose.mode, (int)sysData.enose.state,
         
-        sysData.k230.apple, sysData.k230.banana, sysData.k230.orange, // 🌟 2. 在这里把全局大盘的水果变量灌进去
+        sysData.k230.apple, sysData.k230.banana, sysData.k230.orange, //  2. 在这里把全局大盘的水果变量灌进去
 
         sysData.relays.ozone, sysData.relays.uv_lamp,
         sysData.relays.cool_fans[0], sysData.relays.cool_fans[1],

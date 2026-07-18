@@ -45,6 +45,8 @@ extern uint8_t usb_rx_buffer[64]; // 接收缓冲区
 extern uint8_t usb_rx_flag;       // 接收完成标志位
 extern uint32_t usb_rx_len;       // 接收到的数据长度
 
+extern char usb_rx_buf[256];
+extern volatile uint8_t usb_rx_ready;
 
 /* USER CODE END PV */
 
@@ -275,100 +277,20 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
+    // 1. 中断里只用 HAL_GetTick 喂狗，最安全
+    sysData.last_esp32_heartbeat = HAL_GetTick(); 
+
+    // 2. 内存安全拷贝：只在任务已经处理完上一帧 (ready==0) 的情况下才接收新数据
+    if (*Len > 0 && *Len < sizeof(usb_rx_buf) - 1) {
+        if (usb_rx_ready == 0) { 
+            memcpy(usb_rx_buf, Buf, *Len);
+            usb_rx_buf[*Len] = '\0'; // 强行阻断，防止乱码
+            usb_rx_ready = 1;        // 发信号让任务去解析
+        }
+    }
+
     USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
     USBD_CDC_ReceivePacket(&hUsbDeviceFS);
-
-    if (*Len > 0 && *Len < 64) {
-        Buf[*Len] = '\0'; 
-        char *json_str = (char *)Buf;
-sysData.last_esp32_heartbeat = HAL_GetTick();
-                                }
-
-    // 安全防线：确保字符串有结束符，防止内存越界读到乱码
-    if (*Len > 0 && *Len < 64) {
-        Buf[*Len] = '\0'; 
-        char *json_str = (char *)Buf;
-
-        // ====================================================
-        // 1. 系统握手与档位控制 (互斥操作)
-        // ====================================================
-        if (strstr(json_str, "\"cmd\":\"START\"")) {
-            sysData.esp32_ready = 1; 
-        }
-        else if (strstr(json_str, "\"cmd\":\"MODE_5MIN\"")) {
-            sysData.slow_interval_ms = 300000; 
-        }
-        else if (strstr(json_str, "\"cmd\":\"MODE_30SEC\"")) {
-            sysData.slow_interval_ms = 30000; 
-        }
-
-        // =========================================================
-        // 2. 独立安全设备 (臭氧、紫外线)
-        // =========================================================
-
-        if (strstr(json_str, "\"oz\":1")) {
-            // 🛡️ 再次确认防线：只有没被死锁，才允许强行开臭氧
-            if (sysData.ozone_is_locked == 0) sysData.relays.ozone = 1;
-        }
-        else if (strstr(json_str, "\"oz\":0")) {
-            sysData.relays.ozone = 0;
-        }
-
-        if (strstr(json_str, "\"uv\":1")) sysData.relays.uv_lamp = 1;
-        else if (strstr(json_str, "\"uv\":0")) sysData.relays.uv_lamp = 0;
-
-        // ==========================================================
-        // 3. 高级群组分配 (制冷片、大小风扇组)
-        // 使用 sscanf 动态提取 JSON 里的数字
-        // ==========================================================
-        
-        int num = 0;
-        char *ptr;
-
-        // 解析制冷片数量: {"tec": 3}
-        if ((ptr = strstr(json_str, "\"tec\":")) != NULL) {
-            if (sscanf(ptr, "\"tec\":%d", &num) == 1) {
-                Control_Set_Coolers((uint8_t)num); // 呼叫司令部 API
-            }
-        }
-        
-        // 解析散热大风扇数量: {"c_fan": 4}
-        if ((ptr = strstr(json_str, "\"c_fan\":")) != NULL) {
-            if (sscanf(ptr, "\"c_fan\":%d", &num) == 1) {
-                Control_Set_CoolFans((uint8_t)num); // 呼叫司令部 API
-            }
-        }
-        
-        // 解析搅动小风扇数量: {"d_fan": 2}
-        if ((ptr = strstr(json_str, "\"d_fan\":")) != NULL) {
-            if (sscanf(ptr, "\"d_fan\":%d", &num) == 1) {
-                Control_Set_DuctFans((uint8_t)num); // 呼叫司令部 API
-            }
-        }
-
-        if ((ptr = strstr(json_str, "\"d_fan\":")) != NULL) {
-            if (sscanf(ptr, "\"d_fan\":%d", &num) == 1) {
-                Control_Set_DuctFans((uint8_t)num); // 呼叫司令部 API
-            }
-        }
-        
-        // 新增：AI 电子鼻“一键示教”解析
-        // 网页端下发如 {"teach": 0} (0=新鲜, 1=成熟, 2=过熟, 3=腐败)
-        if ((ptr = strstr(json_str, "\"teach\":")) != NULL) {
-            if (sscanf(ptr, "\"teach\":%d", &num) == 1) {
-                uint32_t now = xTaskGetTickCount();
-                // 1. 强行切入学习模式
-                ENose_SetMode(&sysData.enose, MODE_LEARN, now);
-                // 2. 将当前的传感器气味指纹打上标签
-                ENose_TeachCurrent(&sysData.enose, (ENose_State_t)num);
-                // 3. 切回全自动运行模式
-                ENose_SetMode(&sysData.enose, MODE_RUN, now);
-            }
-        }
-
-
-
-    }
     
     return (USBD_OK);
   /* USER CODE END 6 */

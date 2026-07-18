@@ -122,7 +122,7 @@ const osThreadAttr_t Task_I2C_attributes = {
 osThreadId_t Task_USBHandle;
 const osThreadAttr_t Task_USB_attributes = {
   .name = "Task_USB",
-  .stack_size = 256 * 4,
+  .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityAboveNormal,
 };
 
@@ -407,7 +407,7 @@ void StartI2cTask(void *argument)
     task_tick++; // 心跳+1
 
  // =========================================================
-      // ⏱️ 频段 1：[ 1Hz ] - 冰箱环境精密监控
+      //  频段 1：[ 1Hz ] - 冰箱环境精密监控
       // =========================================================
       if (task_tick % 1 == 0) 
       {
@@ -452,7 +452,7 @@ void StartI2cTask(void *argument)
       // =========================================================
 
       // =========================================================
-      // ⏱️ 频段 3：[ 低频区 - 30秒/次 ] 
+      //  频段 3：[ 低频区 - 30秒/次 ] 
       // 专供：BME688 (测气压、环境底噪气体阻值)
       // =========================================================
    if (task_tick % 30 == 0)
@@ -487,13 +487,13 @@ void StartUSBTask(void *argument)
   /* Infinite loop */
    (void)argument;
 
-// 🌟 架构师级防御：使用 static 关键字把 1024 字节的巨型缓冲区从任务栈移到全局 BSS 段
+// 架构师级防御：使用 static 关键字把 1024 字节的巨型缓冲区从任务栈移到全局 BSS 段
   // 彻底杜绝 FreeRTOS 任务栈溢出死机的问题！
   static char usb_tx_buf[1024]; 
   uint16_t tx_len;
   
   // 初始化配置
-  sysData.slow_interval_ms = 60000; // 默认 60秒 慢信号档位
+  sysData.slow_interval_ms = 30000; // 默认 30秒 慢信号档位
   sysData.ozone_is_locked = 0;
   
   TickType_t last_slow_tick = xTaskGetTickCount();
@@ -507,6 +507,12 @@ void StartUSBTask(void *argument)
 
   for(;;)
   {
+
+      if (usb_rx_ready == 1) {
+          USB_Command_Parser(usb_rx_buf); // 调用刚才封装的专属函数
+          usb_rx_ready = 0;               // 清理现场，接收下一波
+      }
+
       Control_ENose_Tick();
      
       Control_Update_Routine();
@@ -520,6 +526,7 @@ void StartUSBTask(void *argument)
       
          
       }
+      
   /* USER CODE END StartUSBTask */
 }
 

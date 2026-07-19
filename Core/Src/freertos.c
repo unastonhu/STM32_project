@@ -19,6 +19,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "FreeRTOS.h"
+#include "stm32f4xx_hal.h"
 #include "task.h"
 #include "main.h"
 #include "cmsis_os.h"
@@ -496,13 +497,13 @@ void StartUSBTask(void *argument)
   sysData.slow_interval_ms = 30000; // 默认 30秒 慢信号档位
   sysData.ozone_is_locked = 0;
   
-  TickType_t last_slow_tick = xTaskGetTickCount();
+  TickType_t last_slow_tick = HAL_GetTick();
   TickType_t current_tick;
 
    // 1. 初始化通讯部时间戳
   USB_Reporter_Init(); 
 
-  // 新增：唤醒 AI 电子鼻大脑
+  // 唤醒 AI 电子鼻大脑
   Control_ENose_Init();
 
   for(;;)

@@ -10,7 +10,7 @@ static void Ozone_Safety_Monitor(void)
     uint32_t current_tick = xTaskGetTickCount(); 
 
     if (sysData.ozone_is_locked == 1) {
-        // 🔴 状态：死锁中
+        //  状态：死锁中
         sysData.relays.ozone = 0; // 绝对武力压制，强制写 0
         
         // 检查是否度过了强制冷却期
@@ -19,14 +19,14 @@ static void Ozone_Safety_Monitor(void)
         }
     } 
     else {
-        // 🟢 状态：正常
+        //  状态：正常
         if (sysData.relays.ozone == 1) {
             if (sysData.ozone_start_tick == 0) {
                 // 刚被开启，记录此刻时间
                 sysData.ozone_start_tick = current_tick;
             } 
             else if ((current_tick - sysData.ozone_start_tick) >= OZONE_MAX_ON_TIME) {
-                // 💥 触发报警：运行时间超过最大限制！
+                // 触发报警：运行时间超过最大限制！
                 sysData.relays.ozone = 0;        // 强制关停
                 sysData.ozone_is_locked = 1;     // 挂上死锁标志
                 sysData.ozone_lock_tick = current_tick; // 记录死锁开始时间
@@ -173,7 +173,7 @@ void Control_ENose_Tick(void)
         // 参数 dt_min 是时间增量，1秒 = 1.0/60.0 分钟
         ENose_State_t state = ENose_Tick(&sysData.enose, raw, current_tick, 1.0f/60.0f);
 
-        // 3. 🌟 全自动接管：如果 AI 处于运行状态，自动控制执行器！
+        // 3.  全自动接管：如果 AI 处于运行状态，自动控制执行器！
         if (sysData.enose.mode == MODE_RUN) {
             switch (state) {
                 case ENOSE_FRESH:

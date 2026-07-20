@@ -2,7 +2,7 @@
 #include "system_data.h"
 #include "usbd_cdc_if.h"
 #include "FreeRTOS.h"
-#include "cmsis_os.h"
+#include "cmsis_os2.h"
 
 #include "task.h"
 #include <stdio.h>

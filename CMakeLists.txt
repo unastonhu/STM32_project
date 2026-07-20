@@ -64,6 +64,12 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/usb_reporter.c
     Core/Inc/enose.h
     Core/Src/enose.c
+    Core/Inc/bsec_datatypes.h
+    Core/Inc/bsec_interface.h
+    Core/Src/bsec_config.c
+    Core/Src/bme688_bsec_app.c
+    Core/Inc/bme688_bsec_app.h
+
 )
 
 # Add STM32CubeMX generated sources
@@ -90,8 +96,16 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 )
 
 # Add linked libraries
+# 1. 声明一个外部导入的静态库
+add_library(bsec_algo STATIC IMPORTED)
+
+# 2. 绝对绑定静态库的物理路径 (告诉 CMake 去这里拿算法实体)
+set_target_properties(bsec_algo PROPERTIES IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/Core/Lib/libalgobsec.a)
+
 target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
+    bsec_algo   # <--- 把 AI 核心库链接进来！
+    m           # <--- 链接标准的 C 数学库 (算法必须用到 math.h)
 
     # Add user defined libraries
 )

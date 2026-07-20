@@ -19,7 +19,6 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "FreeRTOS.h"
-#include "stm32f4xx_hal.h"
 #include "task.h"
 #include "main.h"
 #include "cmsis_os.h"
@@ -45,6 +44,7 @@
 #include "bme68x.h"
 #include "bme688_port.h"
 #include "bme68x_defs.h"
+#include "bme688_bsec_app.h"
 
 #include "w25q64.h"
 #include "fatfs.h"
@@ -82,6 +82,9 @@ extern TIM_HandleTypeDef htim4;
 uint8_t usb_rx_buffer[64] = {0};
 uint8_t usb_rx_flag = 0;
 uint32_t usb_rx_len = 0;
+
+// [新增]: 定义 I2C 的公共钥匙（互斥锁）
+osMutexId_t i2c_mutex; 
 
 /* USER CODE END Variables */
 /* Definitions for Task_Monitor */
@@ -126,6 +129,13 @@ const osThreadAttr_t Task_USB_attributes = {
   .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityAboveNormal,
 };
+/* Definitions for Task_BSEC */
+osThreadId_t Task_BSECHandle;
+const osThreadAttr_t Task_BSEC_attributes = {
+  .name = "Task_BSEC",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -138,6 +148,7 @@ void StartSonarTask(void *argument);
 void StartHumidityTask(void *argument);
 void StartI2cTask(void *argument);
 void StartUSBTask(void *argument);
+void StartBSECTask(void *argument);
 
 extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -154,6 +165,14 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
+
+// [新增]: i2c互斥锁
+  const osMutexAttr_t i2c_mutex_attr = {
+    .name = "i2c_mutex",
+  };
+  i2c_mutex = osMutexNew(&i2c_mutex_attr);
+
+
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
@@ -186,6 +205,9 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of Task_USB */
   Task_USBHandle = osThreadNew(StartUSBTask, NULL, &Task_USB_attributes);
+
+  /* creation of Task_BSEC */
+  Task_BSECHandle = osThreadNew(StartBSECTask, NULL, &Task_BSEC_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -381,98 +403,115 @@ void StartHumidityTask(void *argument)
   /* USER CODE END StartHumidityTask */
 }
 
-/* USER CODE BEGIN Header_StartI2cTask */
-/**
-* @brief Function implementing the Task_I2C thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_StartI2cTask */
+/* USER CODE BEGIN Header_StartI2cTask /
+/*
+
+@brief Function implementing the Task_I2C thread.
+
+@param argument: Not used
+
+@retval None
+/
+/ USER CODE END Header_StartI2cTask */
 void StartI2cTask(void *argument)
 {
-  /* USER CODE BEGIN StartI2cTask */
-  (void)argument;
+/*USER CODE BEGIN StartI2cTask */
+//(void)argument;
 
-  SGP40_Init(&hi2c1);
-  ENV_Module_Init(&hi2c1);
-  BME688_Port_Init(&hi2c1);
+// [新增锁]: 初始化期间也会用到 I2C，为了防止和刚启动的 AI 任务撞车，这里也加上锁
+extern osMutexId_t i2c_mutex; // 确保能引用到外部定义的锁
+osMutexAcquire(i2c_mutex, osWaitForever);
 
-  
+SGP40_Init(&hi2c1);
+ENV_Module_Init(&hi2c1);
+BME688_Port_Init(&hi2c1);
 
-  uint32_t task_tick = 0; // 用于心跳计数
+osMutexRelease(i2c_mutex);
 
-  /* Infinite loop */
-  for(;;)
-  {
+uint32_t task_tick = 0; // 用于心跳计数
 
-    task_tick++; // 心跳+1
+/* Infinite loop */
+for(;;)
+{
+task_tick++; // 心跳+1
 
- // =========================================================
-      //  频段 1：[ 1Hz ] - 冰箱环境精密监控
-      // =========================================================
-      if (task_tick % 1 == 0) 
-      {
-          // 1. 调用咱们定稿的终极函数（它内部会自动测 AHT21 并喂给 ENS160）
-        sysData.env.status = ENV_Module_ReadAll(
-              &sysData.env.aht_temp, 
-              &sysData.env.aht_hum, 
-              &sysData.env.ens_tvoc, 
-              &sysData.env.ens_eco2, 
-              &sysData.env.ens_aqi
-          );
-          
-          // 新增：秒表逻辑
-          if (sysData.env.status == -2) {
-              sysData.env.ens_warmup_sec++; // 如果在热身，秒表+1
-          } else if (sysData.env.status == 1) {
-              sysData.env.ens_warmup_sec = 0; // 如果出数据了，秒表清零
-          }
-  
+// =========================================================
+//  频段 1：[ 1Hz ] - 冰箱环境精密监控
+// =========================================================
+if (task_tick % 1 == 0) 
+{
+    // [新增锁]: 拿钥匙，准备独占 I2C！
+    osMutexAcquire(i2c_mutex, osWaitForever);
 
-          // 2. 只要返回值不是 -1，就说明 AHT21 没掉线，拿到了真实的冰箱温湿度！
-          if (sysData.env.status != -1) 
-          {
-              // 喂 SGP40 (用新鲜出炉的真值做底层补偿)
-              sysData.sgp40.status = SGP40_GetVOCIndex(
-                  sysData.env.aht_hum,   
-                  sysData.env.aht_temp,  
-                  &sysData.sgp40.raw,         
-                  &sysData.sgp40.voc_index          
-              );
-          }
-          else
-          {
-              //故障处理：AHT21 彻底没拿到数据
-              // 既不喂假数据，也不触发补偿，防止 SGP40 算法崩溃
-              sysData.sgp40.status = -2; // 在黑板上标记：环境数据不可用
-          }
+    // 1. 调用咱们定稿的终极函数（它内部会自动测 AHT21 并喂给 ENS160）
+    sysData.env.status = ENV_Module_ReadAll(
+        &sysData.env.aht_temp, 
+        &sysData.env.aht_hum, 
+        &sysData.env.ens_tvoc, 
+        &sysData.env.ens_eco2, 
+        &sysData.env.ens_aqi
+    );
+
+    // 新增：秒表逻辑
+    if (sysData.env.status == -2) {
+        sysData.env.ens_warmup_sec++; // 如果在热身，秒表+1
+    } else if (sysData.env.status == 1) {
+        sysData.env.ens_warmup_sec = 0; // 如果出数据了，秒表清零
+    }
+
+    // 2. 只要返回值不是 -1，就说明 AHT21 没掉线，拿到了真实的冰箱温湿度！
+    if (sysData.env.status != -1) 
+    {
+        // 喂 SGP40 (用新鲜出炉的真值做底层补偿)
+        sysData.sgp40.status = SGP40_GetVOCIndex(
+            sysData.env.aht_hum,   
+            sysData.env.aht_temp,  
+            &sysData.sgp40.raw,         
+            &sysData.sgp40.voc_index          
+        );
+    }
+    else
+    {
+        //故障处理：AHT21 彻底没拿到数据
+        // 既不喂假数据，也不触发补偿，防止 SGP40 算法崩溃
+        sysData.sgp40.status = -2; // 在黑板上标记：环境数据不可用
+    }
+
+    // [新增锁]: 操作完毕，开门交出 I2C 钥匙！
+    osMutexRelease(i2c_mutex);
+}
+
+// =========================================================
+//  频段 3：[ 低频区 - 30秒/次 ] 
+// 专供：BME688 (测气压、环境底噪气体阻值)
+// =========================================================
+/*if (task_tick % 30 == 0)
+{
+ sysData.bme688.status = BME688_Port_Read(
+     &sysData.bme688.temp, 
+     &sysData.bme688.hum, 
+     &sysData.bme688.press, 
+     &sysData.bme688.gas_res
+ );
+}*/ 
+
+// =========================================================
+// [新增逻辑]: 心跳清零机制，实现 60 秒的固定轮回
+// =========================================================
+if (task_tick >= 60) 
+{
+    task_tick = 0;
+}
+
+// =========================================================
+// 任务底层心跳：严格锁定 1 秒钟休眠
+// 所有的传感器，全靠这 1 秒钟的心跳来驱动！
+// =========================================================
+osDelay(1000);
 
 
-      }
-
-      // =========================================================
-
-      // =========================================================
-      //  频段 3：[ 低频区 - 30秒/次 ] 
-      // 专供：BME688 (测气压、环境底噪气体阻值)
-      // =========================================================
-   if (task_tick % 30 == 0)
-   {
-       sysData.bme688.status = BME688_Port_Read(
-           &sysData.bme688.temp, 
-           &sysData.bme688.hum, 
-           &sysData.bme688.press, 
-           &sysData.bme688.gas_res
-       );
-   }
-
-      // =========================================================
-      // 任务底层心跳：严格锁定 1 秒钟休眠
-      // 所有的传感器，全靠这 1 秒钟的心跳来驱动！
-      // =========================================================
-      osDelay(1000);
-  }
-  /* USER CODE END StartI2cTask */
+}
+/* USER CODE END StartI2cTask */
 }
 
 /* USER CODE BEGIN Header_StartUSBTask */
@@ -524,11 +563,34 @@ void StartUSBTask(void *argument)
       // 4. 完美保持极高实时性，绝不阻塞！
       osDelay(1000);
 
-      
-         
       }
       
   /* USER CODE END StartUSBTask */
+}
+
+/* USER CODE BEGIN Header_StartBSECTask */
+/**
+* @brief Function implementing the Task_BSEC thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartBSECTask */
+void StartBSECTask(void *argument)
+{
+  /* USER CODE BEGIN StartBSECTask */
+
+  // [新增]: 直接召唤外部的 AI 主循环函数！
+  // BME688_BSEC_Task 内部自带了 while(1) 死循环，所以代码运行到这里就不会往下走了
+  BME688_BSEC_Task(argument); 
+
+
+
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(10000);
+  }
+  /* USER CODE END StartBSECTask */
 }
 
 /* Private application code --------------------------------------------------*/

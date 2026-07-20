@@ -1,3 +1,11 @@
+/**
+ * @file    bme688_port.h
+ * @brief   BME688 传感器底层接口头文件
+ *
+ * [修改记录]
+ * 1. 初始版本：包含 BME688 基础初始化与 Forced Mode 强制读取接口声明。
+ */
+
 #ifndef __BME688_PORT_H
 #define __BME688_PORT_H
 

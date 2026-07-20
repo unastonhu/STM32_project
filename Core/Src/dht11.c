@@ -1,7 +1,7 @@
 #include "dht11.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "cmsis_os.h"
+#include "cmsis_os2.h"
 
 static GPIO_TypeDef *dht11_port = NULL;
 static uint16_t      dht11_pin  = 0;

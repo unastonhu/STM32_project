@@ -44,6 +44,13 @@ void System_PrintStatus(SystemData_t *sys) {
     if (sys->bme688.status == 1) printf("[   BME688  ] Pressure : %.2f hPa | Gas Res   : %.0f Ohms\r\n", sys->bme688.press, sys->bme688.gas_res);
     else printf("[   BME688  ] Error    : Offline!\r\n");
 
+    // [新增]: 将 BSEC AI 识别结果接入打印看板
+    // 注意：需要确保你的 system_data.h 结构体里已经加上了 bsec_data 相关字段
+    printf("[ BSEC_AI   ] IAQ Index: %.2f | eCO2: %.0f ppm | AI Odor Risk: %.1f%%\r\n", 
+           sys->bme688.iaq_index, 
+           sys->bme688.eco2, 
+           sys->bme688.food_spoilage_risk * 100.0f);
+
     // 7. W25Q64_1
     if (sys->flash1.id == 0xEF4017) {
         printf("[ W25Q64_1 ] Status   : 8MB Flash Ready! (ID: 0x%lX)\r\n", sys->flash1.id);
@@ -109,9 +116,6 @@ void System_PrintStatus(SystemData_t *sys) {
            
      printf("[ USB_LINK ] System Tick Count: %lu\r\n", (unsigned long)xTaskGetTickCount());
      
-     
-
-
 
     printf("====================================================================================\r\n");
 }

@@ -46,6 +46,12 @@ typedef struct {
     float   press;
     float   gas_res;
     int8_t  status;
+
+    // [新增字段]: 给 AI 结果留位置
+    float iaq_index;
+    float eco2;
+    float food_spoilage_risk; // 存那个 AI 异味/硫化物检测率
+
 } BME688_Data_t;
 
 typedef struct {
@@ -141,10 +147,6 @@ typedef struct {
 } SystemData_t;
 
 
-
-
-
-
 // 对外暴露全局数据变量
 extern SystemData_t sysData;
 
@@ -152,4 +154,3 @@ extern SystemData_t sysData;
 void System_PrintStatus(SystemData_t *sys);
 
 #endif /* __SYSTEM_DATA_H */
-

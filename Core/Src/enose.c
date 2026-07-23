@@ -2,6 +2,7 @@
  * enose.c  —  电子鼻感知核心实现
  * 纯 C99，无外部依赖（只用 <string.h>）。所有距离计算用平方欧氏，避免 sqrt。
  */
+
 #include "enose.h"
 #include <string.h>
 
@@ -31,15 +32,16 @@ void ENose_Init(ENose_t *e)
 {
     memset(e, 0, sizeof(*e));
 
-    /* ---- 默认配置：务必按你实际传感器修改！ ----
+    /* ---- 默认配置：务必按实际传感器修改！ ----
      * polarity: 让"目标越多 → 响应越大"。
-     *   SGP40 SRAW 随 VOC 上升而下降 → -1（若你用别的量取向就改符号）
+     *   SGP40 SRAW 随 VOC 上升而下降 → -1（若用别的量取向就改符号）
      *   TVOC / eCO2 随污染上升 → +1
      *   BME688 gas_res 随还原气上升而下降 → -1
      *   weight 随失水下降 → -1
      * scale: 该通道"明显变质"时相对基线的原始偏移量（决定归一化尺度）
      * weight: 规则兜底判据的权重，和为 1
      */
+
     float def_pol[ENOSE_NUM_CH]   = { -1.f, +1.f, +1.f, -1.f, -1.f };
     float def_scale[ENOSE_NUM_CH] = { 8000.f, 2000.f, 2000.f, 40000.f, 1.f };
     float def_w[ENOSE_NUM_CH]     = { 0.30f, 0.20f, 0.15f, 0.25f, 0.10f };

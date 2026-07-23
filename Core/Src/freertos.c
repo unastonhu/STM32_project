@@ -314,7 +314,7 @@ void StartSonarTask(void *argument)
 
       sysData.ir.ir1_blocked = HAL_GPIO_ReadPin(GPIOD, IR_D1_Pin);
       sysData.ir.ir2_blocked = HAL_GPIO_ReadPin(GPIOD, IR_D2_Pin);
-      sysData.ir.status = sysData.ir.ir2_blocked && sysData.ir.ir1_blocked; // 读取同时遮挡和同时不遮挡的状态码，1:都被遮挡, 0:都没被遮挡, 其他情况为中间状态
+      sysData.ir.status = sysData.ir.ir2_blocked || sysData.ir.ir1_blocked; // 读取同时遮挡和同时不遮挡的状态码，1:都被遮挡, 0:都没被遮挡, 其他情况为中间状态；无遮挡视作开门，status = 0
 
 
      

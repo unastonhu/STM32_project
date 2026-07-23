@@ -16,7 +16,7 @@
 #include <stdio.h>
 
 // [修改 1]: 引入新的食物腐败模型数组
-// ⚠️ 注意：这里的 1947 需要改成你实际生成的食物模型数组大小！
+//  注意：这里的 1947 需要改成你实际生成的食物模型数组大小！
 extern const uint8_t bsec_config_food_spoilage[1947]; 
 
 static uint8_t bsec_work_buffer[BSEC_MAX_WORKBUFFER_SIZE];

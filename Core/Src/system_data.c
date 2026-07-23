@@ -109,12 +109,12 @@ void System_PrintStatus(SystemData_t *sys) {
            sys->k230.status ? "ONLINE " : "OFFLINE ",
            sys->k230.apple, sys->k230.banana, sys->k230.orange);
 
-     printf("[ USB_LINK ] Last ESP32 Heartbeat: %lu ticks ago\r\n", (unsigned long)(xTaskGetTickCount() - sys->last_esp32_heartbeat));
+     printf("[ USB_LINK ] Last ESP32 Heartbeat: %lu ticks ago\r\n", (unsigned long)(HAL_GetTick() - sys->last_esp32_heartbeat));
 
      printf("[ USB_LINK ] Ozone Lock Timestamp: %lu | Ozone Start Timestamp: %lu\r\n", 
            (unsigned long)sys->ozone_lock_tick, (unsigned long)sys->ozone_start_tick);
            
-     printf("[ USB_LINK ] System Tick Count: %lu\r\n", (unsigned long)xTaskGetTickCount());
+     printf("[ USB_LINK ] System Tick Count: %lu\r\n", (unsigned long)HAL_GetTick());
      
 
     printf("====================================================================================\r\n");

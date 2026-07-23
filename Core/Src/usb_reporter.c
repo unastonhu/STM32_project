@@ -70,7 +70,7 @@ void USB_Reporter_Routine(void)
         "\"ds\":{\"t\":%.2f,\"s\":%d},"
         "\"sgp\":{\"v\":%ld,\"r\":%u,\"s\":%d},"
         "\"env\":{\"at\":%.1f,\"ah\":%.1f,\"tv\":%u,\"co\":%u,\"aq\":%d,\"s\":%d},"
-        "\"bme\":{\"t\":%.1f,\"h\":%.1f,\"p\":%.1f,\"g\":%.0f,\"s\":%d},"
+        "\"bme\":{\"t\":%.1f,\"h\":%.1f,\"p\":%.1f,\"g\":%.0f,\"s\":%d,\"iaq\":%.1f,\"eco2\":%.0f,\"risk\":%.3f},"
         "\"mem\":{\"f1\":%d,\"f2\":%d,\"sd\":%d},"
         "\"enose\":{\"mode\":%d,\"state\":%d}," 
         "\"k230\":{\"ap\":%d,\"bn\":%d,\"or\":%d}," //  1. 在这里加上 K230 的 JSON 占位符
@@ -82,7 +82,7 @@ void USB_Reporter_Routine(void)
         sysData.ds18b20.temp, sysData.ds18b20.status,
         (long)sysData.sgp40.voc_index, sysData.sgp40.raw, sysData.sgp40.status,
         sysData.env.aht_temp, sysData.env.aht_hum, sysData.env.ens_tvoc, sysData.env.ens_eco2, sysData.env.ens_aqi, sysData.env.status,
-        sysData.bme688.temp, sysData.bme688.hum, sysData.bme688.press, sysData.bme688.gas_res, sysData.bme688.status,
+        sysData.bme688.temp, sysData.bme688.hum, sysData.bme688.press, sysData.bme688.gas_res, sysData.bme688.status,sysData.bme688.iaq_index,sysData.bme688.eco2,sysData.bme688.food_spoilage_risk,
         sysData.flash1.rw_test, sysData.flash2.rw_test, sysData.sdcard.status,
         (int)sysData.enose.mode, (int)sysData.enose.state,
         

@@ -78,7 +78,8 @@ typedef struct {
 typedef struct {
     uint8_t  ir1_blocked; // 模块 1 状态 (1:被遮挡, 0:未遮挡)
     uint8_t  ir2_blocked; // 模块 2 状态
-    int8_t   status;      // 状态码
+    int8_t   status;      // 状态码,无遮挡视作开门，status = 0
+
 } IR_Sensor_t;
 
 // ==========================================

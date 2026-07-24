@@ -13,6 +13,12 @@
 #define FLASH_DEV_INDEX 0 // 默认使用 1 号芯片 (dev_index = 0)
 
 FlashLogState_t g_flash_log = {0};
+FlashHistoryState_t g_flash_history = {0};
+
+_Static_assert(sizeof(FlashLogEntry_t) == LOG_ENTRY_SIZE,
+               "FlashLogEntry_t must remain 64 bytes");
+_Static_assert(sizeof(FlashHistoryRecord_t) == FLASH_HISTORY_RECORD_SIZE,
+               "FlashHistoryRecord_t must remain 32 bytes");
 
 // --- 内部辅助函数：自动跨页写 (解决 W25Q64_WritePage 单次最大 256 字节限制) ---
 static void Flash_WriteBuffer(uint32_t write_addr, uint8_t* pBuffer, uint16_t num_bytes)
@@ -179,17 +185,6 @@ return true;
 
 void FlashMgr_AppendLog(const ENose_t *e, float temp, float hum, float risk, float loss)
 {
-uint32_t idx = g_flash_log.head_index;
-
-if (idx == 0) {
-    W25Q64_EraseSector(FLASH_DEV_INDEX, FLASH_ADDR_LOG_BASE / 4096); 
-    if (g_flash_log.log_count == MAX_FLASH_LOGS) g_flash_log.log_count -= 64;
-} 
-else if (idx == 64) {
-    W25Q64_EraseSector(FLASH_DEV_INDEX, (FLASH_ADDR_LOG_BASE + 4096) / 4096); 
-    if (g_flash_log.log_count == MAX_FLASH_LOGS) g_flash_log.log_count -= 64;
-}
-
 FlashLogEntry_t entry = {0};
 entry.timestamp     = SysTime_GetLocalTimestamp();
 memcpy(entry.resp, e->resp, sizeof(e->resp));
@@ -199,14 +194,37 @@ entry.spoilage_risk = risk;
 entry.weight_loss_g = loss;
 entry.ai_state      = (uint8_t)e->state;
 
-W25Q64_WritePage(FLASH_DEV_INDEX, (uint8_t*)&entry, FLASH_ADDR_LOG_BASE + idx * LOG_ENTRY_SIZE, LOG_ENTRY_SIZE);
+FlashMgr_AppendLogEntry(&entry);
+}
+
+void FlashMgr_AppendLogEntry(const FlashLogEntry_t *entry)
+{
+uint32_t idx;
+
+if (entry == NULL) return;
+
+idx = g_flash_log.head_index;
+
+if (idx == 0) {
+    W25Q64_EraseSector(FLASH_DEV_INDEX, FLASH_ADDR_LOG_BASE / 4096);
+    if (g_flash_log.log_count == MAX_FLASH_LOGS) g_flash_log.log_count -= 64;
+}
+else if (idx == 64) {
+    W25Q64_EraseSector(FLASH_DEV_INDEX, (FLASH_ADDR_LOG_BASE + 4096) / 4096);
+    if (g_flash_log.log_count == MAX_FLASH_LOGS) g_flash_log.log_count -= 64;
+}
+
+W25Q64_WritePage(
+    FLASH_DEV_INDEX,
+    (uint8_t *)entry,
+    FLASH_ADDR_LOG_BASE + idx * LOG_ENTRY_SIZE,
+    LOG_ENTRY_SIZE
+);
 
 g_flash_log.head_index = (idx + 1) % MAX_FLASH_LOGS;
 if (g_flash_log.log_count < MAX_FLASH_LOGS) {
     g_flash_log.log_count++;
 }
-
-
 }
 
 bool FlashMgr_ReadLog(uint32_t offset_from_newest, FlashLogEntry_t *out_entry)
@@ -246,4 +264,51 @@ FlashMgr_SaveEnoseClasses(e);
 return true;
 
 
+}
+
+void FlashMgr_HistorySessionInit(void)
+{
+g_flash_history.head_index = 0U;
+g_flash_history.record_count = 0U;
+}
+
+bool FlashMgr_AppendHistoryBatch(const FlashHistoryRecord_t *records, uint8_t count)
+{
+uint32_t index;
+uint32_t write_addr;
+uint32_t sector;
+uint16_t bytes;
+
+if (records == NULL || count == 0U || count > 4U) {
+    return false;
+}
+
+index = g_flash_history.head_index;
+
+/*
+ * The worker submits four 32-byte records at a time. head_index therefore
+ * remains 128-byte aligned and a batch never crosses a 256-byte page.
+ */
+if ((index % (4096U / FLASH_HISTORY_RECORD_SIZE)) == 0U) {
+    sector = (FLASH_HISTORY_ADDR_BASE / 4096U) +
+             (index / (4096U / FLASH_HISTORY_RECORD_SIZE));
+    W25Q64_EraseSector(FLASH_HISTORY_DEV_INDEX, sector);
+}
+
+write_addr = FLASH_HISTORY_ADDR_BASE + index * FLASH_HISTORY_RECORD_SIZE;
+bytes = (uint16_t)(count * FLASH_HISTORY_RECORD_SIZE);
+W25Q64_WritePage(
+    FLASH_HISTORY_DEV_INDEX,
+    (uint8_t *)records,
+    write_addr,
+    bytes
+);
+
+g_flash_history.head_index = (index + count) % MAX_FLASH_HISTORY_RECORDS;
+if (g_flash_history.record_count < MAX_FLASH_HISTORY_RECORDS) {
+    uint32_t remaining = MAX_FLASH_HISTORY_RECORDS - g_flash_history.record_count;
+    g_flash_history.record_count += (count < remaining) ? count : remaining;
+}
+
+return true;
 }

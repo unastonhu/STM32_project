@@ -77,6 +77,8 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/sys_time.c
     Core/Inc/flash_manager.h
     Core/Src/flash_manager.c
+    Core/Inc/flash_worker.h
+    Core/Src/flash_worker.c
 
 )
 

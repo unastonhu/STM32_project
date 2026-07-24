@@ -51,6 +51,7 @@
 
 #include "w25q64.h"
 #include "flash_manager.h"
+#include "flash_worker.h"
 #include "sys_time.h"
 #include "fatfs.h"
 #include "ff.h"
@@ -101,10 +102,14 @@ osMutexId_t flash_mutex;
 extern SystemData_t sysData;
 FridgeWeightEngine_t g_weight_engine;
 
+osThreadId_t Task_FlashHandle;
+const osThreadAttr_t Task_Flash_attributes = {
+  .name = "Task_Flash",
+  .stack_size = 384 * 4,
+  .priority = (osPriority_t) osPriorityBelowNormal,
+};
+
 /* USER CODE END Variables */
-
-
-
 /* Definitions for Task_Monitor */
 osThreadId_t Task_MonitorHandle;
 const osThreadAttr_t Task_Monitor_attributes = {
@@ -219,13 +224,6 @@ void MX_FREERTOS_Init(void) {
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
 
-  /*
-   * 必须在创建任务前完成：
-   * W25Q64 -> Flash 索引 -> 称重引擎 -> 电子鼻 -> 掉电数据恢复。
-   * osThreadNew() 之后不再允许任务入口重复清空这些对象。
-   */
-  System_Startup_Routine();
-
   /* Create the thread(s) */
   /* creation of Task_Monitor */
   Task_MonitorHandle = osThreadNew(StartMonitorTask, NULL, &Task_Monitor_attributes);
@@ -252,7 +250,13 @@ void MX_FREERTOS_Init(void) {
   Task_EnoseHandle = osThreadNew(StartEnoseTask, NULL, &Task_Enose_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
+  if (FlashWorker_Init()) {
+    Task_FlashHandle = osThreadNew(
+        FlashWorker_Task,
+        NULL,
+        &Task_Flash_attributes
+    );
+  }
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -691,6 +695,9 @@ void StartEnoseTask(void *argument)
     }
 
     ENoseFrameBuffer_Push(&frame);
+    if (sysData.flash2.status == 1) {
+      (void)FlashWorker_EnqueueHistoryFrame(&frame);
+    }
 
     // 4. 驱动电子鼻主生命周期、红外门控与 VPD 动态评估
     ENose_State_t current_state = ENose_Tick(&sysData.enose, frame.raw, now_ms, dt_min);
@@ -703,16 +710,16 @@ void StartEnoseTask(void *argument)
         current_state != ENOSE_UNKNOWN &&
         frame.valid_mask == ENOSE_FRAME_VALID_ALL &&
         (uint32_t)(now_ms - last_log_tick) >= ENOSE_LOG_INTERVAL_MS) {
-        osMutexAcquire(flash_mutex, osWaitForever);
-        FlashMgr_AppendLog(
+        bool queued = FlashWorker_EnqueueEnoseLog(
             &sysData.enose,
             sysData.env.aht_temp,
             sysData.env.aht_hum,
             sysData.bme688.food_spoilage_risk,
             sysData.enose.actual_total_loss_g
         );
-        osMutexRelease(flash_mutex);
-        last_log_tick = now_ms;
+        if (queued) {
+          last_log_tick = now_ms;
+        }
     }
 
     // 固定 1Hz 调度，避免任务执行时间逐拍累积到采样周期

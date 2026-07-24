@@ -22,6 +22,17 @@
 #define MAX_FLASH_LOGS         128         // 日志缓存最大记录数 (2个扇区)
 #define LOG_ENTRY_SIZE         64          // 单条日志大小严格锁定 64 字节
 
+/*
+ * Flash 2 is reserved for the current boot's synchronized 1 Hz history.
+ * A 2 MB area stores 65536 records, or about 18.2 hours at 1 Hz.
+ * The W25Q64 sanity-check sector at the end of the chip is untouched.
+ */
+#define FLASH_HISTORY_DEV_INDEX     1U
+#define FLASH_HISTORY_ADDR_BASE     0x000000U
+#define FLASH_HISTORY_AREA_SIZE     (2U * 1024U * 1024U)
+#define FLASH_HISTORY_RECORD_SIZE   32U
+#define MAX_FLASH_HISTORY_RECORDS   (FLASH_HISTORY_AREA_SIZE / FLASH_HISTORY_RECORD_SIZE)
+
 #define MAGIC_SYS_CONFIG       0xAA55AA55
 #define MAGIC_AI_REF           0xBB66BB66
 
@@ -51,6 +62,16 @@ uint8_t  ai_state;            // [1B] 记录时的分类状态
 uint8_t  padding[23];         // [23B] 占位补齐至 64B
 } FlashLogEntry_t;
 
+/* Flash 2: fixed-size synchronized raw history record. */
+typedef struct {
+uint32_t timestamp;           // Local/uptime seconds from SysTime
+uint32_t uptime_ms;           // HAL tick for ordering within this boot
+float    raw[ENOSE_NUM_CH];   // SGP40, TVOC, eCO2, BME688 gas, HX711
+uint8_t  valid_mask;
+uint8_t  door_state;
+uint16_t checksum;
+} FlashHistoryRecord_t;
+
 // 3. AI 参考集区 (Sector 1)
 typedef struct {
 uint32_t magic;
@@ -66,6 +87,13 @@ uint32_t log_count;  // 当前有效的日志总数 (最大 128)
 } FlashLogState_t;
 
 extern FlashLogState_t g_flash_log;
+
+typedef struct {
+uint32_t head_index;
+uint32_t record_count;
+} FlashHistoryState_t;
+
+extern FlashHistoryState_t g_flash_history;
 
 // ==========================================
 // API 接口
@@ -85,8 +113,13 @@ bool FlashMgr_ModifyReferenceLabel(uint8_t ref_id, uint8_t new_label, ENose_t *e
 
 // 环形日志存取
 void FlashMgr_AppendLog(const ENose_t *e, float temp, float hum, float risk, float loss);
+void FlashMgr_AppendLogEntry(const FlashLogEntry_t *entry);
 bool FlashMgr_ReadLog(uint32_t offset_from_newest, FlashLogEntry_t *out_entry);
 void FlashMgr_ClearLogs(void);
+
+// Current-boot synchronized history on Flash 2
+void FlashMgr_HistorySessionInit(void);
+bool FlashMgr_AppendHistoryBatch(const FlashHistoryRecord_t *records, uint8_t count);
 
 // 提拔机制
 bool FlashMgr_PromoteLogToRef(uint32_t log_offset, uint8_t target_ref_id, ENose_t *e);

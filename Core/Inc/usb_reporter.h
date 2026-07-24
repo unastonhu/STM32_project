@@ -2,6 +2,7 @@
 #define __USB_REPORTER_H
 
 #include "main.h"
+#include <stdbool.h>
 
 //  初始化通讯报告器 (在 RTOS 死循环外调用一次)
 void USB_Reporter_Init(void);
@@ -13,5 +14,8 @@ extern volatile uint8_t usb_rx_ready;
 
 // 专门的指令解析函数
 void USB_Command_Parser(char *json_str);
+
+/* 由命令模块登记应答，USB Reporter 会在 FAST/SLOW 之后安全发送。 */
+bool USB_Reporter_QueueResponse(const char *format, ...);
 
 #endif /* __USB_REPORTER_H */

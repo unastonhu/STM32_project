@@ -4,14 +4,22 @@
 #include "FreeRTOS.h"
 #include "cmsis_os2.h"
 #include "task.h"
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include "control.h"
 #include "sys_time.h"
 
 #include "flash_manager.h"
+#include "data_export.h"
+#include "dynamic_commands.h"
 
 static char usb_tx_buf[1024];
+static char usb_response_buf[384];
+static uint16_t usb_response_len;
+static bool usb_response_pending;
+static DataExportChunk_t usb_export_chunk;
+static bool usb_export_chunk_pending;
 
 char usb_rx_buf[256];
 volatile uint8_t usb_rx_ready = 0;
@@ -21,11 +29,59 @@ static TickType_t last_wait_tick = 0;
 
 extern osMutexId_t flash_mutex;
 
+bool USB_Reporter_QueueResponse(const char *format, ...)
+{
+va_list args;
+int length;
+
+if (usb_response_pending) {
+    return false;
+}
+
+va_start(args, format);
+length = vsnprintf(
+    usb_response_buf,
+    sizeof(usb_response_buf),
+    format,
+    args
+);
+va_end(args);
+
+if (length <= 0 || (size_t)length >= sizeof(usb_response_buf)) {
+    return false;
+}
+
+usb_response_len = (uint16_t)length;
+usb_response_pending = true;
+return true;
+}
+
+static bool USB_TransmitWithRetry(
+    uint8_t *data,
+    uint16_t length,
+    uint8_t retry_limit)
+{
+uint8_t retries = 0U;
+uint8_t result;
+
+do {
+    result = CDC_Transmit_FS(data, length);
+    if (result != USBD_BUSY) {
+        return result == USBD_OK;
+    }
+    osDelay(1);
+} while (++retries <= retry_limit);
+
+return false;
+}
+
 void USB_Reporter_Init(void)
 {
 sysData.slow_interval_ms = 10000;
 last_slow_tick = HAL_GetTick();
 last_wait_tick = HAL_GetTick();
+usb_response_pending = false;
+usb_export_chunk_pending = false;
 }
 
 void USB_Reporter_Routine(void)
@@ -56,6 +112,7 @@ else {
         
         tx_len = snprintf(usb_tx_buf, sizeof(usb_tx_buf), 
             "{\"cmd\":\"SLOW\","
+            "\"ts\":%lu,"
             "\"hx\":{\"w\":%.1f,\"s\":%d},"
             "\"dht\":{\"t\":%d,\"h\":%d,\"s\":%d},"
             "\"ds\":{\"t\":%.2f,\"s\":%d},"
@@ -68,6 +125,7 @@ else {
             "\"relays\":{\"oz\":%d,\"uv\":%d,\"cf\":[%d,%d],\"df\":[%d,%d],\"tec\":[%d,%d,%d,%d]}"
             "}\r\n", 
             
+            (unsigned long)SysTime_GetLocalTimestamp(),
             sysData.hx711.weight, sysData.hx711.status,
             sysData.dht11.temp, sysData.dht11.hum, sysData.dht11.status,
             sysData.ds18b20.temp, sysData.ds18b20.status,
@@ -95,6 +153,31 @@ else {
     }
 }
 
+/*
+ * FAST/SLOW 始终先发送，导出数据只能使用它们之后的空闲带宽。
+ * 若端点仍忙，响应或导出块会保留到下一轮，不覆盖也不丢弃。
+ */
+if (usb_response_pending) {
+    if (USB_TransmitWithRetry(
+            (uint8_t *)usb_response_buf,
+            usb_response_len,
+            20U)) {
+        usb_response_pending = false;
+    }
+}
+else {
+    if (!usb_export_chunk_pending) {
+        usb_export_chunk_pending =
+            DataExport_TryGetChunk(&usb_export_chunk);
+    }
+    if (usb_export_chunk_pending &&
+        USB_TransmitWithRetry(
+            (uint8_t *)usb_export_chunk.data,
+            usb_export_chunk.length,
+            20U)) {
+        usb_export_chunk_pending = false;
+    }
+}
 
 }
 
@@ -108,6 +191,10 @@ else if (strstr(json_str, "\"cmd\":\"MODE_5MIN\"")) sysData.slow_interval_ms = 3
 else if (strstr(json_str, "\"cmd\":\"MODE_30SEC\"")) sysData.slow_interval_ms = 30000; 
 
 // 1. 时间注入
+if (DynamicCommands_Handle(json_str)) {
+    return;
+}
+
 if (strstr(json_str, "TIME:")) SysTime_ParseUSBCommand(json_str, strlen(json_str));
 
 // 2. 边缘数据库高级管控

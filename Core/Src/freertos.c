@@ -68,6 +68,7 @@
 #include "ai_feature_extractor.h"
 #include "prototype_head.h"
 #include "prototype_worker.h"
+#include "data_export.h"
 
 /* USER CODE END Includes */
 
@@ -106,20 +107,6 @@ osMutexId_t flash_mutex;
 
 extern SystemData_t sysData;
 FridgeWeightEngine_t g_weight_engine;
-
-osThreadId_t Task_FlashHandle;
-const osThreadAttr_t Task_Flash_attributes = {
-  .name = "Task_Flash",
-  .stack_size = 384 * 4,
-  .priority = (osPriority_t) osPriorityBelowNormal,
-};
-
-osThreadId_t Task_PrototypeHandle;
-const osThreadAttr_t Task_Prototype_attributes = {
-  .name = "Task_Prototype",
-  .stack_size = 1024 * 4,
-  .priority = (osPriority_t) osPriorityLow,
-};
 
 /* USER CODE END Variables */
 /* Definitions for Task_Monitor */
@@ -178,6 +165,20 @@ const osThreadAttr_t Task_Enose_attributes = {
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for Task_Flash */
+osThreadId_t Task_FlashHandle;
+const osThreadAttr_t Task_Flash_attributes = {
+  .name = "Task_Flash",
+  .stack_size = 384 * 4,
+  .priority = (osPriority_t) osPriorityBelowNormal,
+};
+/* Definitions for Task_Prototype */
+osThreadId_t Task_PrototypeHandle;
+const osThreadAttr_t Task_Prototype_attributes = {
+  .name = "Task_Prototype",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -194,6 +195,8 @@ void StartI2cTask(void *argument);
 void StartUSBTask(void *argument);
 void StartBSECTask(void *argument);
 void StartEnoseTask(void *argument);
+void StartFlashTask(void *argument);
+void StartPrototypeTask(void *argument);
 
 extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -267,19 +270,19 @@ void MX_FREERTOS_Init(void) {
   /* creation of Task_Enose */
   Task_EnoseHandle = osThreadNew(StartEnoseTask, NULL, &Task_Enose_attributes);
 
+  /* creation of Task_Flash */
+  Task_FlashHandle = osThreadNew(StartFlashTask, NULL, &Task_Flash_attributes);
+
+  /* creation of Task_Prototype */
+  Task_PrototypeHandle = osThreadNew(StartPrototypeTask, NULL, &Task_Prototype_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
-  if (FlashWorker_Init()) {
-    Task_FlashHandle = osThreadNew(
-        FlashWorker_Task,
-        NULL,
-        &Task_Flash_attributes
-    );
-  }
-  Task_PrototypeHandle = osThreadNew(
-      PrototypeWorker_Task,
-      NULL,
-      &Task_Prototype_attributes
-  );
+  /*
+   * CubeMX 已负责创建两个任务。这里只初始化任务运行前需要的资源，
+   * 禁止再次 osThreadNew，否则会产生两个 Flash/原型任务。
+   */
+  (void)FlashWorker_Init();
+  (void)DataExport_Init();
   PrototypeWorker_AttachTask(Task_PrototypeHandle);
   /* USER CODE END RTOS_THREADS */
 
@@ -761,6 +764,39 @@ void StartEnoseTask(void *argument)
     vTaskDelayUntil(&last_wake_tick, pdMS_TO_TICKS(ENOSE_TASK_PERIOD_MS));
   }
   /* USER CODE END StartEnoseTask */
+}
+
+/* USER CODE BEGIN Header_StartFlashTask */
+/**
+* @brief Function implementing the Task_Flash thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartFlashTask */
+void StartFlashTask(void *argument)
+{
+  /* USER CODE BEGIN StartFlashTask */
+  /*
+   * CubeMX 管理任务句柄、优先级和栈；真正的无限循环放在 Worker 中，
+   * 这样以后重新生成代码仍会保留此 USER CODE。
+   */
+  FlashWorker_Task(argument);
+  /* USER CODE END StartFlashTask */
+}
+
+/* USER CODE BEGIN Header_StartPrototypeTask */
+/**
+* @brief Function implementing the Task_Prototype thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartPrototypeTask */
+void StartPrototypeTask(void *argument)
+{
+  /* USER CODE BEGIN StartPrototypeTask */
+  /* 低优先级等待重建请求，2 秒合并连续的样本编辑操作。 */
+  PrototypeWorker_Task(argument);
+  /* USER CODE END StartPrototypeTask */
 }
 
 /* Private application code --------------------------------------------------*/

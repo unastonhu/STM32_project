@@ -126,6 +126,13 @@ void FlashWorker_Task(void *argument)
     FlashJob_t job;
 
     (void)argument;
+    /*
+     * 队列在调度器启动前创建。若 heap 不足导致创建失败，安全结束本任务，
+     * 不能对 NULL 队列无限轮询占满 CPU。
+     */
+    if (s_flash_queue == NULL) {
+        osThreadExit();
+    }
     FlashMgr_HistorySessionInit();
 
     for (;;) {

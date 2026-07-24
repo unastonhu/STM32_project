@@ -87,6 +87,10 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/prototype_head.c
     Core/Inc/prototype_worker.h
     Core/Src/prototype_worker.c
+    Core/Inc/data_export.h
+    Core/Src/data_export.c
+    Core/Inc/dynamic_commands.h
+    Core/Src/dynamic_commands.c
 
 )
 

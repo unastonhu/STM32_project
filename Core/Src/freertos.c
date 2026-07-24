@@ -52,6 +52,7 @@
 #include "w25q64.h"
 #include "flash_manager.h"
 #include "flash_worker.h"
+#include "sample_library.h"
 #include "sys_time.h"
 #include "fatfs.h"
 #include "ff.h"
@@ -193,6 +194,12 @@ void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
   */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
+
+  /*
+   * Restore all Flash-backed state before any task can observe sysData.
+   * Keep this call inside the CubeMX user section.
+   */
+  System_Startup_Routine();
 
   /* USER CODE END Init */
 
@@ -775,6 +782,7 @@ static void System_Startup_Routine(void)
     }
 
     FlashMgr_LoadEnoseClasses(&sysData.enose);
+    (void)SampleLibrary_Init(SAMPLE_LIBRARY_MODEL_VERSION);
   }
 }
 

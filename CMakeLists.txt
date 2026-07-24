@@ -79,6 +79,8 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/flash_manager.c
     Core/Inc/flash_worker.h
     Core/Src/flash_worker.c
+    Core/Inc/sample_library.h
+    Core/Src/sample_library.c
 
 )
 

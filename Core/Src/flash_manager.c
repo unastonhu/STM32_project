@@ -312,3 +312,80 @@ if (g_flash_history.record_count < MAX_FLASH_HISTORY_RECORDS) {
 
 return true;
 }
+
+uint16_t FlashMgr_HistoryChecksum(const FlashHistoryRecord_t *record)
+{
+/* 写入和读回共用同一算法，避免两处复制后修改不一致。 */
+const uint8_t *bytes = (const uint8_t *)record;
+uint16_t checksum = 0x5AA5U;
+
+for (uint32_t i = 0U; i < sizeof(*record) - sizeof(record->checksum); i++) {
+    checksum = (uint16_t)((checksum << 5) | (checksum >> 11));
+    checksum ^= bytes[i];
+}
+return checksum;
+}
+
+bool FlashMgr_HistoryRecordValid(const FlashHistoryRecord_t *record)
+{
+if (record == NULL) return false;
+return record->checksum == FlashMgr_HistoryChecksum(record);
+}
+
+void FlashMgr_GetHistoryState(FlashHistoryState_t *out_state)
+{
+/* 调用者持有 flash_mutex 时取得一致的 head/count 快照。 */
+if (out_state != NULL) {
+    *out_state = g_flash_history;
+}
+}
+
+bool FlashMgr_ReadHistoryBatch(
+    const FlashHistoryState_t *snapshot,
+    uint32_t logical_start,
+    FlashHistoryRecord_t *out_records,
+    uint16_t max_records,
+    uint16_t *out_count)
+{
+uint32_t physical_index;
+uint32_t available;
+uint32_t contiguous;
+
+if (out_count != NULL) {
+    *out_count = 0U;
+}
+if (snapshot == NULL || out_records == NULL || out_count == NULL ||
+    max_records == 0U || logical_start >= snapshot->record_count) {
+    return false;
+}
+
+available = snapshot->record_count - logical_start;
+if (available > max_records) {
+    available = max_records;
+}
+
+/*
+ * 未绕回时逻辑下标等于物理下标；写满绕回后 head 指向最旧记录。
+ * 单次读取不跨 Flash 尾部，调用者可用 logical_start 继续下一批。
+ */
+if (snapshot->record_count < MAX_FLASH_HISTORY_RECORDS) {
+    physical_index = logical_start;
+} else {
+    physical_index =
+        (snapshot->head_index + logical_start) % MAX_FLASH_HISTORY_RECORDS;
+}
+
+contiguous = MAX_FLASH_HISTORY_RECORDS - physical_index;
+if (available > contiguous) {
+    available = contiguous;
+}
+
+W25Q64_ReadData(
+    FLASH_HISTORY_DEV_INDEX,
+    (uint8_t *)out_records,
+    FLASH_HISTORY_ADDR_BASE + physical_index * FLASH_HISTORY_RECORD_SIZE,
+    (uint16_t)(available * FLASH_HISTORY_RECORD_SIZE)
+);
+*out_count = (uint16_t)available;
+return true;
+}

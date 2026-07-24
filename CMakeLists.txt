@@ -81,6 +81,12 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/flash_worker.c
     Core/Inc/sample_library.h
     Core/Src/sample_library.c
+    Core/Inc/ai_feature_extractor.h
+    Core/Src/ai_feature_extractor.c
+    Core/Inc/prototype_head.h
+    Core/Src/prototype_head.c
+    Core/Inc/prototype_worker.h
+    Core/Src/prototype_worker.c
 
 )
 

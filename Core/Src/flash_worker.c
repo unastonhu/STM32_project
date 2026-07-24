@@ -36,19 +36,6 @@ static void FlashWorker_StatsAdd(uint32_t *counter, uint32_t amount)
     taskEXIT_CRITICAL();
 }
 
-static uint16_t FlashWorker_HistoryChecksum(const FlashHistoryRecord_t *record)
-{
-    const uint8_t *bytes = (const uint8_t *)record;
-    uint16_t checksum = 0x5AA5U;
-
-    for (uint32_t i = 0U; i < sizeof(*record) - sizeof(record->checksum); i++) {
-        checksum = (uint16_t)((checksum << 5) | (checksum >> 11));
-        checksum ^= bytes[i];
-    }
-
-    return checksum;
-}
-
 bool FlashWorker_Init(void)
 {
     memset(&s_stats, 0, sizeof(s_stats));
@@ -75,7 +62,7 @@ bool FlashWorker_EnqueueHistoryFrame(const ENoseFrame_t *frame)
     job.payload.history.valid_mask = frame->valid_mask;
     job.payload.history.door_state = frame->door_state;
     job.payload.history.checksum =
-        FlashWorker_HistoryChecksum(&job.payload.history);
+        FlashMgr_HistoryChecksum(&job.payload.history);
 
     if (osMessageQueuePut(s_flash_queue, &job, 0U, 0U) != osOK) {
         FlashWorker_StatsAdd(&s_stats.dropped_jobs, 1U);

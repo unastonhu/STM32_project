@@ -65,6 +65,9 @@
 
 #include "enose.h"
 #include "enose_frame_buffer.h"
+#include "ai_feature_extractor.h"
+#include "prototype_head.h"
+#include "prototype_worker.h"
 
 /* USER CODE END Includes */
 
@@ -91,6 +94,7 @@ extern TIM_HandleTypeDef htim4;
 
 #define ENOSE_TASK_PERIOD_MS  1000U
 #define ENOSE_LOG_INTERVAL_MS 60000U
+#define PROTOTYPE_INFERENCE_INTERVAL_MS 3000U
 
 uint8_t usb_rx_buffer[64] = {0};
 uint8_t usb_rx_flag = 0;
@@ -108,6 +112,13 @@ const osThreadAttr_t Task_Flash_attributes = {
   .name = "Task_Flash",
   .stack_size = 384 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
+};
+
+osThreadId_t Task_PrototypeHandle;
+const osThreadAttr_t Task_Prototype_attributes = {
+  .name = "Task_Prototype",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityLow,
 };
 
 /* USER CODE END Variables */
@@ -264,6 +275,12 @@ void MX_FREERTOS_Init(void) {
         &Task_Flash_attributes
     );
   }
+  Task_PrototypeHandle = osThreadNew(
+      PrototypeWorker_Task,
+      NULL,
+      &Task_Prototype_attributes
+  );
+  PrototypeWorker_AttachTask(Task_PrototypeHandle);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -658,6 +675,7 @@ void StartEnoseTask(void *argument)
   // 电子鼻及其 Flash 参考集已在创建任务前完成初始化和恢复
   uint32_t last_tick = HAL_GetTick();
   uint32_t last_log_tick = last_tick;
+  uint32_t last_prototype_tick = last_tick;
   TickType_t last_wake_tick = xTaskGetTickCount();
 
   /* Infinite loop */
@@ -704,6 +722,16 @@ void StartEnoseTask(void *argument)
     ENoseFrameBuffer_Push(&frame);
     if (sysData.flash2.status == 1) {
       (void)FlashWorker_EnqueueHistoryFrame(&frame);
+    }
+
+    /*
+     * 动态原型推理属于慢 AI：每 3 秒观察一次同步窗口，但底层采样仍保持 1 Hz。
+     * 第四步只保存动态结果，不覆盖旧电子鼻状态，等标样验证后再接管控制。
+     */
+    if ((uint32_t)(now_ms - last_prototype_tick) >=
+        PROTOTYPE_INFERENCE_INTERVAL_MS) {
+      (void)PrototypeHead_ClassifyLatest(NULL);
+      last_prototype_tick = now_ms;
     }
 
     // 4. 驱动电子鼻主生命周期、红外门控与 VPD 动态评估
@@ -782,7 +810,8 @@ static void System_Startup_Routine(void)
     }
 
     FlashMgr_LoadEnoseClasses(&sysData.enose);
-    (void)SampleLibrary_Init(SAMPLE_LIBRARY_MODEL_VERSION);
+    (void)SampleLibrary_Init(AI_FEATURE_EXTRACTOR_VERSION);
+    (void)PrototypeHead_Init(AI_FEATURE_EXTRACTOR_VERSION);
   }
 }
 

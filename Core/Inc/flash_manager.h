@@ -120,6 +120,16 @@ void FlashMgr_ClearLogs(void);
 // Current-boot synchronized history on Flash 2
 void FlashMgr_HistorySessionInit(void);
 bool FlashMgr_AppendHistoryBatch(const FlashHistoryRecord_t *records, uint8_t count);
+void FlashMgr_GetHistoryState(FlashHistoryState_t *out_state);
+bool FlashMgr_ReadHistoryBatch(
+    const FlashHistoryState_t *snapshot,
+    uint32_t logical_start,
+    FlashHistoryRecord_t *out_records,
+    uint16_t max_records,
+    uint16_t *out_count
+);
+uint16_t FlashMgr_HistoryChecksum(const FlashHistoryRecord_t *record);
+bool FlashMgr_HistoryRecordValid(const FlashHistoryRecord_t *record);
 
 // 提拔机制
 bool FlashMgr_PromoteLogToRef(uint32_t log_offset, uint8_t target_ref_id, ENose_t *e);

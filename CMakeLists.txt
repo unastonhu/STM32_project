@@ -64,6 +64,8 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/usb_reporter.c
     Core/Inc/enose.h
     Core/Src/enose.c
+    Core/Inc/enose_frame_buffer.h
+    Core/Src/enose_frame_buffer.c
     Core/Inc/bsec_datatypes.h
     Core/Inc/bsec_interface.h
     Core/Src/bsec_config.c

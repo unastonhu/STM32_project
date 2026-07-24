@@ -62,6 +62,7 @@
 #include "usb_reporter.h"
 
 #include "enose.h"
+#include "enose_frame_buffer.h"
 
 /* USER CODE END Includes */
 
@@ -165,7 +166,6 @@ const osThreadAttr_t Task_Enose_attributes = {
 /* USER CODE BEGIN FunctionPrototypes */
 
 static void System_Startup_Routine(void);
-static uint8_t ENose_RawDataReady(void);
 
 /* USER CODE END FunctionPrototypes */
 
@@ -661,21 +661,39 @@ void StartEnoseTask(void *argument)
     }
     last_tick = now_ms;
 
-    // 3. 对齐 5 通道原始数据 (严格按 enose.h 顺序对齐)
+    // 3. 生成一帧同步数据，并写入 1 Hz RAM 环形缓冲
     // [0] SGP40  SRAW (原始阻值/码值)
     // [1] ENS160 TVOC
     // [2] ENS160 eCO2
     // [3] BME688 gas_res
     // [4] HX711  weight (经过滑动滤波后的当前物理总重)
-    float raw[ENOSE_NUM_CH];
-    raw[0] = (float)sysData.sgp40.raw;
-    raw[1] = (float)sysData.env.ens_tvoc;
-    raw[2] = (float)sysData.env.ens_eco2;
-    raw[3] = (float)sysData.bme688.gas_res;
-    raw[4] = sysData.hx711.weight;
+    ENoseFrame_t frame = {0};
+    frame.timestamp_ms = now_ms;
+    frame.raw[0] = (float)sysData.sgp40.raw;
+    frame.raw[1] = (float)sysData.env.ens_tvoc;
+    frame.raw[2] = (float)sysData.env.ens_eco2;
+    frame.raw[3] = (float)sysData.bme688.gas_res;
+    frame.raw[4] = sysData.hx711.weight;
+    frame.door_state = (uint8_t)sysData.ir.status;
+
+    if (sysData.sgp40.status == 1) {
+      frame.valid_mask |= ENOSE_FRAME_VALID_SGP40;
+    }
+    if (sysData.env.status == 1) {
+      frame.valid_mask |= ENOSE_FRAME_VALID_ENS_TVOC;
+      frame.valid_mask |= ENOSE_FRAME_VALID_ENS_ECO2;
+    }
+    if (sysData.bme688.status == 1) {
+      frame.valid_mask |= ENOSE_FRAME_VALID_BME688;
+    }
+    if (sysData.hx711.status == 1) {
+      frame.valid_mask |= ENOSE_FRAME_VALID_HX711;
+    }
+
+    ENoseFrameBuffer_Push(&frame);
 
     // 4. 驱动电子鼻主生命周期、红外门控与 VPD 动态评估
-    ENose_State_t current_state = ENose_Tick(&sysData.enose, raw, now_ms, dt_min);
+    ENose_State_t current_state = ENose_Tick(&sysData.enose, frame.raw, now_ms, dt_min);
 
     // 5. 根据同一份电子鼻状态更新自动控制策略
     Control_ENose_Tick();
@@ -683,7 +701,7 @@ void StartEnoseTask(void *argument)
     // 6. 仅在数据有效、判定有效且 Flash 在线时定时追加日志
     if (sysData.flash1.status == 1 &&
         current_state != ENOSE_UNKNOWN &&
-        ENose_RawDataReady() &&
+        frame.valid_mask == ENOSE_FRAME_VALID_ALL &&
         (uint32_t)(now_ms - last_log_tick) >= ENOSE_LOG_INTERVAL_MS) {
         osMutexAcquire(flash_mutex, osWaitForever);
         FlashMgr_AppendLog(
@@ -739,6 +757,7 @@ static void System_Startup_Routine(void)
   ENose_Init(&sysData.enose);
   sysData.enose.scale[4] = 75.0f;
   ENose_AttachWeightEngine(&sysData.enose, &g_weight_engine);
+  ENoseFrameBuffer_Init();
 
   if (sysData.flash1.status == 1) {
     FlashMgr_Init();
@@ -750,14 +769,6 @@ static void System_Startup_Routine(void)
 
     FlashMgr_LoadEnoseClasses(&sysData.enose);
   }
-}
-
-static uint8_t ENose_RawDataReady(void)
-{
-  return (sysData.sgp40.status == 1 &&
-          sysData.env.status == 1 &&
-          sysData.bme688.status == 1 &&
-          sysData.hx711.status == 1) ? 1U : 0U;
 }
 
 /* USER CODE END Application */

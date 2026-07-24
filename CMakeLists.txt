@@ -71,6 +71,10 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Inc/bme688_bsec_app.h
     Core/Inc/fridge_weight_engine.h
     Core/Src/fridge_weight_engine.c
+    Core/Inc/sys_time.h
+    Core/Src/sys_time.c
+    Core/Inc/flash_manager.h
+    Core/Src/flash_manager.c
 
 )
 

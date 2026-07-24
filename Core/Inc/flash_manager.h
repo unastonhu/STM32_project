@@ -2,7 +2,7 @@
 *
 *@file    flash_manager.h
 *
-*@brief   W25Q64 边缘微型数据库 (系统配置 / AI参考集 / 环形日志)
+*@brief   W25Q64 边缘微型数据库 (系统配置 / AI参考集 / 128条环形日志)
 */
 
 #ifndef __FLASH_MANAGER_H
@@ -22,7 +22,7 @@
 #define MAX_FLASH_LOGS         128         // 日志缓存最大记录数 (2个扇区)
 #define LOG_ENTRY_SIZE         64          // 单条日志大小严格锁定 64 字节
 
-#define MAGIC_SYS_CONFIG       0xAA55AA55  // 校验魔数
+#define MAGIC_SYS_CONFIG       0xAA55AA55
 #define MAGIC_AI_REF           0xBB66BB66
 
 // ==========================================
@@ -77,7 +77,7 @@ void FlashMgr_Init(void);
 void FlashMgr_SaveSysState(uint8_t *bsec_state, uint8_t bsec_len, float current_weight_anchor);
 bool FlashMgr_LoadSysState(uint8_t *bsec_state, uint8_t *bsec_len, float *weight_anchor);
 
-// AI 参考集存取与管控 (支持上位机动态调参)
+// AI 参考集存取与管控
 void FlashMgr_SaveEnoseClasses(const ENose_t *e);
 void FlashMgr_LoadEnoseClasses(ENose_t *e);
 bool FlashMgr_DeleteReference(uint8_t ref_id, ENose_t *e);

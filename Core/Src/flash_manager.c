@@ -1,13 +1,20 @@
+/*
+*
+*@file    flash_manager.c
+*
+*@brief   W25Q64 边缘微型数据库实现 (精确匹配 w25q64.h API)
+*/
+
 #include "flash_manager.h"
 #include "w25q64.h"
 #include "sys_time.h"
 #include <string.h>
 
-#define FLASH_DEV_INDEX 0 // 默认使用 1 号芯片
+#define FLASH_DEV_INDEX 0 // 默认使用 1 号芯片 (dev_index = 0)
 
 FlashLogState_t g_flash_log = {0};
 
-// --- 内部辅助函数：自动跨页写 (解决 W25Q64_WritePage 最大 256 字节的限制) ---
+// --- 内部辅助函数：自动跨页写 (解决 W25Q64_WritePage 单次最大 256 字节限制) ---
 static void Flash_WriteBuffer(uint32_t write_addr, uint8_t* pBuffer, uint16_t num_bytes)
 {
 uint16_t pageremain = 256 - (write_addr % 256);
@@ -15,7 +22,7 @@ if(num_bytes <= pageremain) pageremain = num_bytes;
 
 while(1) {
     W25Q64_WritePage(FLASH_DEV_INDEX, pBuffer, write_addr, pageremain);
-    if(num_bytes == pageremain) break; // 写完结束
+    if(num_bytes == pageremain) break; 
     pBuffer += pageremain;
     write_addr += pageremain;
     num_bytes -= pageremain;
@@ -56,44 +63,69 @@ if (max_idx == -1) {
 
 }
 
-void FlashMgr_SaveSysState(uint8_t bsec_state, uint8_t bsec_len, float current_weight_anchor)
+void FlashMgr_SaveSysState(uint8_t *bsec_state,uint8_t bsec_len,float current_weight_anchor)
 {
-FlashSysConfig_t cfg = {0};
-// 继承历史开机次数
-W25Q64_ReadData(FLASH_DEV_INDEX, (uint8_t)&cfg.boot_counter, FLASH_ADDR_SYS_CONFIG + 4, 4);
-if (cfg.boot_counter == 0xFFFFFFFF) cfg.boot_counter = 0;
+    FlashSysConfig_t cfg = {0};
 
-cfg.magic = MAGIC_SYS_CONFIG;
-cfg.boot_counter += 1; 
-cfg.weight_anchor_g = current_weight_anchor;
+    W25Q64_ReadData(
+        FLASH_DEV_INDEX,
+        (uint8_t *)&cfg.boot_counter,
+        FLASH_ADDR_SYS_CONFIG + 4,
+        sizeof(cfg.boot_counter)
+    );
 
-if (bsec_len <= 140 && bsec_state != NULL) {
-    cfg.bsec_state_len = bsec_len;
-    memcpy(cfg.bsec_state, bsec_state, bsec_len);
+    if (cfg.boot_counter == 0xFFFFFFFF) {
+        cfg.boot_counter = 0;
+    }
+
+    cfg.magic = MAGIC_SYS_CONFIG;
+    cfg.boot_counter++;
+    cfg.weight_anchor_g = current_weight_anchor;
+
+    if (bsec_state != NULL && bsec_len <= sizeof(cfg.bsec_state)) {
+        cfg.bsec_state_len = bsec_len;
+        memcpy(cfg.bsec_state, bsec_state, bsec_len);
+    }
+
+    W25Q64_EraseSector(
+        FLASH_DEV_INDEX,
+        FLASH_ADDR_SYS_CONFIG / 4096
+    );
+
+    Flash_WriteBuffer(
+        FLASH_ADDR_SYS_CONFIG,
+        (uint8_t *)&cfg,
+        sizeof(cfg)
+    );
 }
 
-W25Q64_EraseSector(FLASH_DEV_INDEX, FLASH_ADDR_SYS_CONFIG / 4096);
-Flash_WriteBuffer(FLASH_ADDR_SYS_CONFIG, (uint8_t*)&cfg, sizeof(FlashSysConfig_t));
-
-
-}
-
-bool FlashMgr_LoadSysState(uint8_t *bsec_state, uint8_t *bsec_len, float weight_anchor)
+bool FlashMgr_LoadSysState(uint8_t *bsec_state,uint8_t *bsec_len,float *weight_anchor)
 {
-FlashSysConfig_t cfg;
-W25Q64_ReadData(FLASH_DEV_INDEX, (uint8_t)&cfg, FLASH_ADDR_SYS_CONFIG, sizeof(FlashSysConfig_t));
+    FlashSysConfig_t cfg;
 
-if (cfg.magic == MAGIC_SYS_CONFIG) {
-    if (weight_anchor) *weight_anchor = cfg.weight_anchor_g;
-    if (bsec_state && bsec_len && cfg.bsec_state_len <= 140) {
+    W25Q64_ReadData(
+        FLASH_DEV_INDEX,
+        (uint8_t *)&cfg,
+        FLASH_ADDR_SYS_CONFIG,
+        sizeof(cfg)
+    );
+
+    if (cfg.magic != MAGIC_SYS_CONFIG) {
+        return false;
+    }
+
+    if (weight_anchor != NULL) {
+        *weight_anchor = cfg.weight_anchor_g;
+    }
+
+    if (bsec_state != NULL &&
+        bsec_len != NULL &&
+        cfg.bsec_state_len <= sizeof(cfg.bsec_state)) {
         *bsec_len = cfg.bsec_state_len;
         memcpy(bsec_state, cfg.bsec_state, cfg.bsec_state_len);
     }
+
     return true;
-}
-return false;
-
-
 }
 
 void FlashMgr_SaveEnoseClasses(const ENose_t *e)
@@ -108,16 +140,24 @@ Flash_WriteBuffer(FLASH_ADDR_AI_REF, (uint8_t*)&cfg, sizeof(FlashRefConfig_t));
 
 }
 
-void FlashMgr_LoadEnoseClasses(ENose_t e)
+void FlashMgr_LoadEnoseClasses(ENose_t *e)
 {
-FlashRefConfig_t cfg;
-W25Q64_ReadData(FLASH_DEV_INDEX, (uint8_t)&cfg, FLASH_ADDR_AI_REF, sizeof(FlashRefConfig_t));
+    FlashRefConfig_t cfg;
 
-if (cfg.magic == MAGIC_AI_REF) {
-    memcpy(e->cls, cfg.classes, sizeof(e->cls));
-}
+    if (e == NULL) {
+        return;
+    }
 
+    W25Q64_ReadData(
+        FLASH_DEV_INDEX,
+        (uint8_t *)&cfg,
+        FLASH_ADDR_AI_REF,
+        sizeof(cfg)
+    );
 
+    if (cfg.magic == MAGIC_AI_REF) {
+        memcpy(e->cls, cfg.classes, sizeof(e->cls));
+    }
 }
 
 bool FlashMgr_DeleteReference(uint8_t ref_id, ENose_t *e)
@@ -132,7 +172,7 @@ return true;
 bool FlashMgr_ModifyReferenceLabel(uint8_t ref_id, uint8_t new_label, ENose_t *e)
 {
 if (ref_id >= ENOSE_NUM_CLASS) return false;
-e->cls[ref_id].mapped_label = new_label; // 修改网页端的展示类别映射
+e->cls[ref_id].mapped_label = new_label;
 FlashMgr_SaveEnoseClasses(e);
 return true;
 }
@@ -141,13 +181,12 @@ void FlashMgr_AppendLog(const ENose_t *e, float temp, float hum, float risk, flo
 {
 uint32_t idx = g_flash_log.head_index;
 
-// 每 64 条记录占满一个扇区，到达边界时自动擦除下一个扇区
 if (idx == 0) {
-    W25Q64_EraseSector(FLASH_DEV_INDEX, FLASH_ADDR_LOG_BASE / 4096); // 擦除 Sector 2
+    W25Q64_EraseSector(FLASH_DEV_INDEX, FLASH_ADDR_LOG_BASE / 4096); 
     if (g_flash_log.log_count == MAX_FLASH_LOGS) g_flash_log.log_count -= 64;
 } 
 else if (idx == 64) {
-    W25Q64_EraseSector(FLASH_DEV_INDEX, (FLASH_ADDR_LOG_BASE + 4096) / 4096); // 擦除 Sector 3
+    W25Q64_EraseSector(FLASH_DEV_INDEX, (FLASH_ADDR_LOG_BASE + 4096) / 4096); 
     if (g_flash_log.log_count == MAX_FLASH_LOGS) g_flash_log.log_count -= 64;
 }
 
@@ -160,7 +199,6 @@ entry.spoilage_risk = risk;
 entry.weight_loss_g = loss;
 entry.ai_state      = (uint8_t)e->state;
 
-// 64 字节刚好不跨页，可以直接用 WritePage
 W25Q64_WritePage(FLASH_DEV_INDEX, (uint8_t*)&entry, FLASH_ADDR_LOG_BASE + idx * LOG_ENTRY_SIZE, LOG_ENTRY_SIZE);
 
 g_flash_log.head_index = (idx + 1) % MAX_FLASH_LOGS;
@@ -202,7 +240,7 @@ ENose_ClassRef_t *c = &e->cls[target_ref_id];
 memcpy(c->centroid, entry.resp, sizeof(entry.resp));
 c->n_samples = 1;
 c->valid = 1;
-c->mapped_label = entry.ai_state; // 继承当时的分类结果
+c->mapped_label = entry.ai_state; 
 
 FlashMgr_SaveEnoseClasses(e);
 return true;

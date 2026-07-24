@@ -16,14 +16,16 @@
 *
 *与硬件解耦：本模块不碰寄存器/HAL，你只需在外部接三个口：
 *
-*   - 读传感器：把 5 路原始读数按顺序喂给 ENose_Tick()
-*   - 存 Flash ：ENose_t 是 POD，直接 memcpy 保存 base[] 和 cls[]
-*   - 驱动执行：根据 ENose_Tick() 返回的状态去开关你的继电器
-*
-*
+
+读传感器：把 5 路原始读数按顺序喂给 ENose_Tick()
+
+存 Flash ：ENose_t 是 POD，直接 memcpy 保存 base[] 和 cls[]
+
+驱动执行：根据 ENose_Tick() 返回的状态去开关你的继电器
+
 *5 个通道（顺序固定，喂 raw[] 时对齐）：
 *
-*[0] SGP40  VOC   (建议用原始 SRAW，别用会自适应归零的 VOC Index)
+*[0] SGP40   VOC   (建议用原始 SRAW，别用会自适应归零的 VOC Index)
 *
 *[1] ENS160 TVOC
 *
@@ -39,8 +41,8 @@
 #include <stdint.h>
 #include "fridge_weight_engine.h"
 
-#define ENOSE_NUM_CH     5   // 传感器通道数 
-#define ENOSE_NUM_CLASS  4   // 类别数：新鲜/成熟/过熟/腐败 
+#define ENOSE_NUM_CH     5   // 传感器通道数
+#define ENOSE_NUM_CLASS  32  // 类别槽位数 (扩容至 32 条以供参考集与 CubeAI 联动)
 
 /* 判定状态（同时用作示教时的类别下标 0..3） */
 typedef enum {
@@ -48,16 +50,16 @@ ENOSE_FRESH    = 0,
 ENOSE_RIPENING = 1,
 ENOSE_OVERRIPE = 2,
 ENOSE_SPOILED  = 3,
-ENOSE_UNKNOWN  = -1   // 预热/采基线阶段，读数不可信 
+ENOSE_UNKNOWN  = -1   // 预热/采基线阶段，读数不可信
 } ENose_State_t;
 
 /* 运行模式 */
 typedef enum {
-MODE_WARMUP = 0,   // MOX 预热中，忽略读数 
-MODE_BASELINE,     // 采清洁空气基线（放样品前跑） 
-MODE_RUN,          // 全自动：融合 → 判定 → 由外部驱动执行器 
-MODE_LEARN,        // 半自动：示教打标，积累类别中心（执行器冻结） 
-MODE_LOG           // 记录特征到 SD，供离线训练（可选） 
+MODE_WARMUP = 0,   // MOX 预热中，忽略读数
+MODE_BASELINE,     // 采清洁空气基线（放样品前跑）
+MODE_RUN,          // 全自动：融合 → 判定 → 由外部驱动执行器
+MODE_LEARN,        // 半自动：示教打标，积累类别中心（执行器冻结）
+MODE_LOG           // 记录特征到 SD，供离线训练（可选）
 } ENose_Mode_t;
 
 /* 门控状态机枚举 (解决开门突变与关门稳定) */
@@ -69,31 +71,32 @@ DOOR_STATE_RECOVERY          = 2  // 关门恢复期 (倒计时 wait 3分钟，�
 
 /* 单个类别的"气味指纹中心"（示教学到的特征均值） */
 typedef struct {
-float    centroid[ENOSE_NUM_CH]; // 该类别的平均归一化响应 
-uint16_t n_samples;              // 已示教样本数，0 = 还没教过 
-uint8_t  valid;                  // 1 = 该类别可用 
+float    centroid[ENOSE_NUM_CH]; // 该类别的平均归一化响应
+uint16_t n_samples;              // 已示教样本数，0 = 还没教过
+uint8_t  valid;                  // 1 = 该类别可用
+uint8_t  mapped_label;           // 映射标签 (0:新鲜 1:成熟 2:过熟 3:腐败 等)
 } ENose_ClassRef_t;
 
 typedef struct {
 /* ===== 需要你按所用传感器填的静态配置 ===== */
-float polarity[ENOSE_NUM_CH]; // +1/-1：使"目标气体越多 → 响应越大" 
-float scale[ENOSE_NUM_CH];    // 每通道量程：约等于"明显变质"时的原始偏移量 
-float weight[ENOSE_NUM_CH];   // 规则指数权重（未示教时的兜底判据，和为 1） 
+float polarity[ENOSE_NUM_CH]; // +1/-1：使"目标气体越多 → 响应越大"
+float scale[ENOSE_NUM_CH];    // 每通道量程：约等于"明显变质"时的原始偏移量
+float weight[ENOSE_NUM_CH];   // 规则指数权重（未示教时的兜底判据，和为 1）
 
 /* ===== 运行时状态（模块内部维护，不用管） ===== */
-float base[ENOSE_NUM_CH];     // 清洁空气基线（自动采集 + 门控自适应） 
-float resp[ENOSE_NUM_CH];     // 当前归一化响应 0..1 
-float last_raw[ENOSE_NUM_CH]; // 上一拍原始值 
-float prev_voc;               // 上一拍 VOC，用于算斜率 
-float d_voc_dt;               // VOC 变化率（/分钟），早期预警用 
+float base[ENOSE_NUM_CH];     // 清洁空气基线（自动采集 + 门控自适应）
+float resp[ENOSE_NUM_CH];     // 当前归一化响应 0..1
+float last_raw[ENOSE_NUM_CH]; // 上一拍原始值
+float prev_voc;               // 上一拍 VOC，用于算斜率
+float d_voc_dt;               // VOC 变化率（/分钟），早期预警用
 
 ENose_ClassRef_t cls[ENOSE_NUM_CLASS];
 
 ENose_Mode_t  mode;
-ENose_State_t state;          // 当前判定结果 
-float         index;          // 融合变质分数 0..1 
-uint16_t      bl_cnt;         // 基线采样计数（内部用） 
-uint32_t      mode_since_ms;  // 进入当前模式的时刻 
+ENose_State_t state;          // 当前判定结果
+float         index;          // 融合变质分数 0..1
+uint16_t      bl_cnt;         // 基线采样计数（内部用）
+uint32_t      mode_since_ms;  // 进入当前模式的时刻
 
 /* ===== [新增扩展]：门控状态机与 VPD 失水评估引擎字段 ===== */
 ENose_DoorState_t    door_state;             // 当前物理门控状态
@@ -104,7 +107,6 @@ float                actual_total_loss_g;    // 物理累积总失重量 (g)
 float                allowed_normal_loss_g;  // 理论容许的最大正常失重量 (g)
 float                abnormal_loss_ratio;    // 异常失水倍率 (实际失重 / 理论失重)
 FridgeWeightEngine_t *weight_engine;         // 指向外部重量引擎的指针
-
 
 } ENose_t;
 

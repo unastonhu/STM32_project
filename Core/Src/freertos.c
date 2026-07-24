@@ -35,7 +35,10 @@
 
 #include "ds18b20.h"
 #include "hcsr04.h"
+
 #include "hx711.h"
+#include "fridge_weight_engine.h"
+
 #include "dht11.h"
 
 #include "sgp40.h"
@@ -55,6 +58,8 @@
 
 #include "control.h"
 #include "usb_reporter.h"
+
+#include "enose.h"
 
 /* USER CODE END Includes */
 
@@ -86,7 +91,14 @@ uint32_t usb_rx_len = 0;
 // [新增]: 定义 I2C 的公共钥匙（互斥锁）
 osMutexId_t i2c_mutex; 
 
+extern SystemData_t sysData;
+extern FridgeWeightEngine_t g_weight_engine;
+
+ENose_t g_enose;
 /* USER CODE END Variables */
+
+
+
 /* Definitions for Task_Monitor */
 osThreadId_t Task_MonitorHandle;
 const osThreadAttr_t Task_Monitor_attributes = {
@@ -113,14 +125,14 @@ osThreadId_t Task_HumidityHandle;
 const osThreadAttr_t Task_Humidity_attributes = {
   .name = "Task_Humidity",
   .stack_size = 256 * 4,
-  .priority = (osPriority_t) osPriorityBelowNormal,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for Task_I2C */
 osThreadId_t Task_I2CHandle;
 const osThreadAttr_t Task_I2C_attributes = {
   .name = "Task_I2C",
   .stack_size = 256 * 4,
-  .priority = (osPriority_t) osPriorityBelowNormal,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for Task_USB */
 osThreadId_t Task_USBHandle;
@@ -136,6 +148,13 @@ const osThreadAttr_t Task_BSEC_attributes = {
   .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for Task_Enose */
+osThreadId_t Task_EnoseHandle;
+const osThreadAttr_t Task_Enose_attributes = {
+  .name = "Task_Enose",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -149,6 +168,7 @@ void StartHumidityTask(void *argument);
 void StartI2cTask(void *argument);
 void StartUSBTask(void *argument);
 void StartBSECTask(void *argument);
+void StartEnoseTask(void *argument);
 
 extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -208,6 +228,9 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of Task_BSEC */
   Task_BSECHandle = osThreadNew(StartBSECTask, NULL, &Task_BSEC_attributes);
+
+  /* creation of Task_Enose */
+  Task_EnoseHandle = osThreadNew(StartEnoseTask, NULL, &Task_Enose_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -366,56 +389,80 @@ void StartHumidityTask(void *argument)
   DS18B20_Init(); // 假设你的 DS18B20 在 PA8，请根据实际情况修改
   HX711_Init(GPIOD, GPIO_PIN_0, GPIOD, GPIO_PIN_1);
  
+  // 初始化重量中值滤波与阶跃捕获引擎
+  FridgeWeight_Init(&g_weight_engine);
+  int32_t slow_sensor_counter = 0; // 慢速传感器计数器
 
-  /* Infinite loop */
-  for(;;)
-  {
-     // 1. 智能测称重
-      float w = HX711_GetWeight();
-      if (w <= -999.0f) { // 捕获到故障码
-          sysData.hx711.status = -1; // 标记坏了
-          sysData.hx711.weight = 0;
-      } else {
-          sysData.hx711.status = 1;  // 标记正常
-          sysData.hx711.weight = (w < 0.0f) ? 0.0f : w;
-      }
+  
+/* Infinite loop */
+for(;;)
+{
+    uint32_t now_sec = HAL_GetTick() / 1000;
 
-      // 2. 智能测 DS18B20 (假设你把故障码设为了 -999)
-      float t = DS18B20_GetTemp();
-      if (t <= -999.0f) {
-          sysData.ds18b20.status = -1;
-      } else {
-          sysData.ds18b20.status = 1;
-          sysData.ds18b20.temp = t;
-      }
-
-      // 3. 测 DHT11 (本身就自带容错)
-      uint8_t hum = 0, temp_dht = 0;
-      sysData.dht11.status = DHT11_Read_Data(&hum, &temp_dht);
-      if(sysData.dht11.status == 1) {
-          sysData.dht11.hum = hum;
-          sysData.dht11.temp = temp_dht;
-      }
-      osDelay(30000);
+    // =========================================================
+    //  频段 A：[ 200ms 高频 (5Hz) ] - 称重滤波、消抖与开门阶跃捕获
+    // =========================================================
+    float raw_w = HX711_GetWeight();
     
+    if (raw_w <= -900.0f) { 
+        // 捕获到 HX711 底层超时/断线故障码
+        sysData.hx711.status = -1; 
+    } else {
+        sysData.hx711.status = 1;  
+        // 1. 喂入中值+滑动窗口复合滤波器 (消除压缩机震动抖动)
+        float filtered_w = FridgeWeight_UpdateFilter(&g_weight_engine, raw_w);
+        sysData.hx711.weight = (filtered_w < 0.0f) ? 0.0f : filtered_w;
 
-  }
+        // 2. 实时捕获开门状态下的拿放动作 (`sysData.ir.status == 0` 为开门)
+        uint8_t door_is_open = (sysData.ir.status == 0);
+        FridgeWeight_ProcessDoorOpen(&g_weight_engine, door_is_open, now_sec);
+    }
+
+    // =========================================================
+    //  频段 B：[ 30秒 低频 ] - DHT11 & DS18B20 环境温湿度采样
+    //  (200ms * 150 次 = 30000ms = 30秒)
+    // =========================================================
+    slow_sensor_counter++;
+    if (slow_sensor_counter >= 150)
+    {
+        slow_sensor_counter = 0; // 清零重新计数
+
+        // 1. 智能测 DS18B20
+        float t = DS18B20_GetTemp();
+        if (t <= -900.0f) {
+            sysData.ds18b20.status = -1;
+        } else {
+            sysData.ds18b20.status = 1;
+            sysData.ds18b20.temp = t;
+        }
+
+        // 2. 测 DHT11
+        uint8_t hum = 0, temp_dht = 0;
+        sysData.dht11.status = DHT11_Read_Data(&hum, &temp_dht);
+        if(sysData.dht11.status == 1) {
+            sysData.dht11.hum = hum;
+            sysData.dht11.temp = temp_dht;
+        }
+    }
+
+    // =========================================================
+    // 核心心跳：锁定 200ms 休眠，保证称重高频滤波响应！
+    // =========================================================
+    osDelay(200);
+}
   /* USER CODE END StartHumidityTask */
 }
 
-/* USER CODE BEGIN Header_StartI2cTask /
-/*
-
-@brief Function implementing the Task_I2C thread.
-
-@param argument: Not used
-
-@retval None
-/
-/ USER CODE END Header_StartI2cTask */
+/* USER CODE BEGIN Header_StartI2cTask */
+/**
+* @brief Function implementing the Task_I2C thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartI2cTask */
 void StartI2cTask(void *argument)
 {
-/*USER CODE BEGIN StartI2cTask */
+  /* USER CODE BEGIN StartI2cTask */
 //(void)argument;
 
 // [新增锁]: 初始化期间也会用到 I2C，为了防止和刚启动的 AI 任务撞车，这里也加上锁
@@ -511,7 +558,7 @@ osDelay(1000);
 
 
 }
-/* USER CODE END StartI2cTask */
+  /* USER CODE END StartI2cTask */
 }
 
 /* USER CODE BEGIN Header_StartUSBTask */
@@ -591,6 +638,63 @@ void StartBSECTask(void *argument)
     osDelay(10000);
   }
   /* USER CODE END StartBSECTask */
+}
+
+/* USER CODE BEGIN Header_StartEnoseTask */
+/**
+ * @brief 电子鼻主运行任务 (运行周期: 1000ms / 1Hz)
+ * @param argument: FreeRTOS 任务传入参数
+ */
+/* USER CODE END Header_StartEnoseTask */
+void StartEnoseTask(void *argument)
+{
+  /* USER CODE BEGIN StartEnoseTask */
+  (void)argument;
+
+  // 1. 初始化电子鼻大脑
+  ENose_Init(&g_enose);
+
+  // 2. 绑定外部重量处理引擎
+  ENose_AttachWeightEngine(&g_enose, &g_weight_engine);
+
+  uint32_t last_tick = HAL_GetTick();
+
+  /* Infinite loop */
+  for(;;)
+  {
+    uint32_t now_ms = HAL_GetTick();
+
+    // 计算距上一拍的时间间隔（单位：分钟）
+    float dt_min = (float)(now_ms - last_tick) / 60000.0f;
+    if (dt_min < 1e-4f) {
+        dt_min = 1.0f / 60.0f; // 兜底默认 1 秒 (1/60 分钟)
+    }
+    last_tick = now_ms;
+
+    // 3. 对齐 5 通道原始数据 (严格按 enose.h 顺序对齐)
+    // [0] SGP40  SRAW (原始阻值/码值)
+    // [1] ENS160 TVOC
+    // [2] ENS160 eCO2
+    // [3] BME688 gas_res
+    // [4] HX711  weight (经过滑动滤波后的当前物理总重)
+    float raw[ENOSE_NUM_CH];
+    raw[0] = (float)sysData.sgp40.raw;
+    raw[1] = (float)sysData.env.ens_tvoc;
+    raw[2] = (float)sysData.env.ens_eco2;
+    raw[3] = (float)sysData.bme688.gas_res;
+    raw[4] = sysData.hx711.weight;
+
+    // 4. 驱动电子鼻主生命周期、红外门控与 VPD 动态评估
+    ENose_State_t current_state = ENose_Tick(&g_enose, raw, now_ms, dt_min);
+
+    // 5. 将计算好的运行模式与判定结果刷入全局 sysData 中枢，供 UI 看板与 JSON 上报
+    sysData.enose.mode  = (int)g_enose.mode;
+    sysData.enose.state = (int)current_state;
+
+    // 1秒周期循环
+    osDelay(1000);
+  }
+  /* USER CODE END StartEnoseTask */
 }
 
 /* Private application code --------------------------------------------------*/

@@ -69,6 +69,8 @@ add_executable(${CMAKE_PROJECT_NAME}
     Core/Src/bsec_config.c
     Core/Src/bme688_bsec_app.c
     Core/Inc/bme688_bsec_app.h
+    Core/Inc/fridge_weight_engine.h
+    Core/Src/fridge_weight_engine.c
 
 )
 

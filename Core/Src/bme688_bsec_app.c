@@ -17,7 +17,7 @@
 
 // [修改 1]: 引入新的食物腐败模型数组
 //  注意：这里的 1947 需要改成你实际生成的食物模型数组大小！
-extern const uint8_t bsec_config_food_spoilage[1947]; 
+extern const uint8_t bsec_food_spoilage[1947];
 
 static uint8_t bsec_work_buffer[BSEC_MAX_WORKBUFFER_SIZE];
 
@@ -32,6 +32,9 @@ static int64_t BSEC_Get_Timestamp_ns(void)
 
 static void BSEC_Process_Data(const bsec_input_t *inputs, uint8_t n_inputs, const bsec_output_t *outputs, uint8_t n_outputs)
 {
+    (void)inputs;
+    (void)n_inputs;
+
     for (uint8_t i = 0; i < n_outputs; i++)
     {
         switch (outputs[i].sensor_id)
@@ -70,7 +73,7 @@ void BME688_BSEC_Task(void *argument)
 
     // [修改 3]: 将新的食物腐败模型送入算法核心
     // ⚠️ 注意：这里的 1947 同样需要改成你实际生成的食物模型数组大小！
-    bsec_set_configuration(bsec_config_food_spoilage, 1947, bsec_work_buffer, sizeof(bsec_work_buffer));
+    bsec_set_configuration(bsec_food_spoilage, 1947, bsec_work_buffer, sizeof(bsec_work_buffer));
 
     bsec_sensor_configuration_t requested_virtual_sensors[5];
     uint8_t n_requested = 5;

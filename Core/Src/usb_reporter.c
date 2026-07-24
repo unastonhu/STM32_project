@@ -19,6 +19,8 @@ volatile uint8_t usb_rx_ready = 0;
 static TickType_t last_slow_tick = 0;
 static TickType_t last_wait_tick = 0;
 
+extern osMutexId_t flash_mutex;
+
 void USB_Reporter_Init(void)
 {
 sysData.slow_interval_ms = 10000;
@@ -100,7 +102,6 @@ void USB_Command_Parser(char *json_str)
 {
 char *ptr;
 int num = 0, num2 = 0;
-extern ENose_t g_enose;
 
 if (strstr(json_str, "\"cmd\":\"START\"")) sysData.esp32_ready = 1; 
 else if (strstr(json_str, "\"cmd\":\"MODE_5MIN\"")) sysData.slow_interval_ms = 300000; 
@@ -111,12 +112,17 @@ if (strstr(json_str, "TIME:")) SysTime_ParseUSBCommand(json_str, strlen(json_str
 
 // 2. 边缘数据库高级管控
 if (strstr(json_str, "\"cmd\":\"CLEAR_LOGS\"")) {
+    osMutexAcquire(flash_mutex, osWaitForever);
     FlashMgr_ClearLogs();
+    osMutexRelease(flash_mutex);
 }
 else if (strstr(json_str, "\"cmd\":\"GET_LOG\"")) {
     if ((ptr = strstr(json_str, "\"offset\":")) != NULL && sscanf(ptr, "\"offset\":%d", &num) == 1) {
         FlashLogEntry_t log;
-        if(FlashMgr_ReadLog((uint32_t)num, &log)) {
+        osMutexAcquire(flash_mutex, osWaitForever);
+        bool log_found = FlashMgr_ReadLog((uint32_t)num, &log);
+        osMutexRelease(flash_mutex);
+        if(log_found) {
             int len = snprintf(usb_tx_buf, sizeof(usb_tx_buf),
                 "{\"cmd\":\"LOG_DATA\",\"offset\":%d,\"ts\":%lu,\"t\":%.1f,\"h\":%.1f,\"risk\":%.3f,\"loss\":%.1f,\"ai\":%d}\r\n",
                 num, log.timestamp, log.env_temp, log.env_hum, log.spoilage_risk, log.weight_loss_g, log.ai_state);
@@ -128,13 +134,15 @@ else if (strstr(json_str, "\"cmd\":\"SET_REF\"")) {
     ptr = strstr(json_str, "\"offset\":");
     char *ptr2 = strstr(json_str, "\"id\":");
     if (ptr && ptr2 && sscanf(ptr, "\"offset\":%d", &num) == 1 && sscanf(ptr2, "\"id\":%d", &num2) == 1) {
-        FlashMgr_PromoteLogToRef((uint32_t)num, (uint8_t)num2, &g_enose);
+        osMutexAcquire(flash_mutex, osWaitForever);
+        FlashMgr_PromoteLogToRef((uint32_t)num, (uint8_t)num2, &sysData.enose);
+        osMutexRelease(flash_mutex);
     }
 }
 else if (strstr(json_str, "\"cmd\":\"GET_REF\"")) {
     if ((ptr = strstr(json_str, "\"id\":")) != NULL && sscanf(ptr, "\"id\":%d", &num) == 1) {
         if (num >= 0 && num < ENOSE_NUM_CLASS) {
-            ENose_ClassRef_t *c = &g_enose.cls[num];
+            ENose_ClassRef_t *c = &sysData.enose.cls[num];
             int len = snprintf(usb_tx_buf, sizeof(usb_tx_buf),
                 "{\"cmd\":\"REF_DATA\",\"id\":%d,\"v\":%d,\"label\":%d,\"resp\":[%.3f,%.3f,%.3f,%.3f,%.3f]}\r\n",
                 num, c->valid, c->mapped_label, c->centroid[0], c->centroid[1], c->centroid[2], c->centroid[3], c->centroid[4]);
@@ -144,12 +152,16 @@ else if (strstr(json_str, "\"cmd\":\"GET_REF\"")) {
 }
 else if (strstr(json_str, "\"cmd\":\"DEL_REF\"")) {
     if ((ptr = strstr(json_str, "\"id\":")) != NULL && sscanf(ptr, "\"id\":%d", &num) == 1) {
-        FlashMgr_DeleteReference((uint8_t)num, &g_enose);
+        osMutexAcquire(flash_mutex, osWaitForever);
+        FlashMgr_DeleteReference((uint8_t)num, &sysData.enose);
+        osMutexRelease(flash_mutex);
     }
 }
 else if (strstr(json_str, "\"cmd\":\"SAVE_SYS\"")) {
     extern FridgeWeightEngine_t g_weight_engine;
+    osMutexAcquire(flash_mutex, osWaitForever);
     FlashMgr_SaveSysState(NULL, 0, g_weight_engine.base_anchor_weight);
+    osMutexRelease(flash_mutex);
 }
 
 // 3. 执行器控制与示教
@@ -170,12 +182,16 @@ if ((ptr = strstr(json_str, "\"d_fan\":")) != NULL) {
 }
 if ((ptr = strstr(json_str, "\"teach\":")) != NULL) {
     if (sscanf(ptr, "\"teach\":%d", &num) == 1) {
-        uint32_t now = xTaskGetTickCount(); 
-        ENose_SetMode(&g_enose, MODE_LEARN, now);
-        ENose_TeachCurrent(&g_enose, (ENose_State_t)num);
-        g_enose.cls[num].mapped_label = (uint8_t)num; 
-        ENose_SetMode(&g_enose, MODE_RUN, now);
-        FlashMgr_SaveEnoseClasses(&g_enose);
+        if (num >= 0 && num < ENOSE_NUM_CLASS) {
+            uint32_t now = HAL_GetTick();
+            ENose_SetMode(&sysData.enose, MODE_LEARN, now);
+            ENose_TeachCurrent(&sysData.enose, (ENose_State_t)num);
+            sysData.enose.cls[num].mapped_label = (uint8_t)num;
+            ENose_SetMode(&sysData.enose, MODE_RUN, now);
+            osMutexAcquire(flash_mutex, osWaitForever);
+            FlashMgr_SaveEnoseClasses(&sysData.enose);
+            osMutexRelease(flash_mutex);
+        }
     }
 }
 

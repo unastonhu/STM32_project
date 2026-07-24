@@ -50,6 +50,8 @@
 #include "bme688_bsec_app.h"
 
 #include "w25q64.h"
+#include "flash_manager.h"
+#include "sys_time.h"
 #include "fatfs.h"
 #include "ff.h"
 #include "system_data.h"
@@ -84,17 +86,20 @@
 
 extern TIM_HandleTypeDef htim4;
 
+#define ENOSE_TASK_PERIOD_MS  1000U
+#define ENOSE_LOG_INTERVAL_MS 60000U
+
 uint8_t usb_rx_buffer[64] = {0};
 uint8_t usb_rx_flag = 0;
 uint32_t usb_rx_len = 0;
 
 // [新增]: 定义 I2C 的公共钥匙（互斥锁）
-osMutexId_t i2c_mutex; 
+osMutexId_t i2c_mutex;
+osMutexId_t flash_mutex;
 
 extern SystemData_t sysData;
-extern FridgeWeightEngine_t g_weight_engine;
+FridgeWeightEngine_t g_weight_engine;
 
-ENose_t g_enose;
 /* USER CODE END Variables */
 
 
@@ -159,6 +164,9 @@ const osThreadAttr_t Task_Enose_attributes = {
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 
+static void System_Startup_Routine(void);
+static uint8_t ENose_RawDataReady(void);
+
 /* USER CODE END FunctionPrototypes */
 
 void StartMonitorTask(void *argument);
@@ -192,6 +200,10 @@ void MX_FREERTOS_Init(void) {
   };
   i2c_mutex = osMutexNew(&i2c_mutex_attr);
 
+  const osMutexAttr_t flash_mutex_attr = {
+    .name = "flash_mutex",
+  };
+  flash_mutex = osMutexNew(&flash_mutex_attr);
 
   /* USER CODE END RTOS_MUTEX */
 
@@ -206,6 +218,13 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
+
+  /*
+   * 必须在创建任务前完成：
+   * W25Q64 -> Flash 索引 -> 称重引擎 -> 电子鼻 -> 掉电数据恢复。
+   * osThreadNew() 之后不再允许任务入口重复清空这些对象。
+   */
+  System_Startup_Routine();
 
   /* Create the thread(s) */
   /* creation of Task_Monitor */
@@ -281,18 +300,6 @@ void StartLEDTask(void *argument)
 {
   /* USER CODE BEGIN StartLEDTask */
   (void)argument;
-
-  W25Q64_Init();
-
-  sysData.flash1.id = W25Q64_ReadID(0);
-  if (sysData.flash1.id == 0xEF4017) {sysData.flash1.rw_test = W25Q64_SanityCheck(0);
-  }
-
-
-   sysData.flash2.id = W25Q64_ReadID(1);
-   if (sysData.flash2.id == 0xEF4017) sysData.flash2.rw_test = W25Q64_SanityCheck(1);
-
-
 
   /* Infinite loop */
   for(;;)
@@ -389,8 +396,7 @@ void StartHumidityTask(void *argument)
   DS18B20_Init(); // 假设你的 DS18B20 在 PA8，请根据实际情况修改
   HX711_Init(GPIOD, GPIO_PIN_0, GPIOD, GPIO_PIN_1);
  
-  // 初始化重量中值滤波与阶跃捕获引擎
-  FridgeWeight_Init(&g_weight_engine);
+  // 重量引擎已在 System_Startup_Routine() 中初始化并恢复锚点，禁止在此清空
   int32_t slow_sensor_counter = 0; // 慢速传感器计数器
 
   
@@ -463,7 +469,7 @@ for(;;)
 void StartI2cTask(void *argument)
 {
   /* USER CODE BEGIN StartI2cTask */
-//(void)argument;
+  (void)argument;
 
 // [新增锁]: 初始化期间也会用到 I2C，为了防止和刚启动的 AI 任务撞车，这里也加上锁
 extern osMutexId_t i2c_mutex; // 确保能引用到外部定义的锁
@@ -574,23 +580,12 @@ void StartUSBTask(void *argument)
   /* Infinite loop */
    (void)argument;
 
-// 架构师级防御：使用 static 关键字把 1024 字节的巨型缓冲区从任务栈移到全局 BSS 段
-  // 彻底杜绝 FreeRTOS 任务栈溢出死机的问题！
-  static char usb_tx_buf[1024]; 
-  uint16_t tx_len;
-  
   // 初始化配置
   sysData.slow_interval_ms = 30000; // 默认 30秒 慢信号档位
   sysData.ozone_is_locked = 0;
-  
-  TickType_t last_slow_tick = HAL_GetTick();
-  TickType_t current_tick;
 
    // 1. 初始化通讯部时间戳
   USB_Reporter_Init(); 
-
-  // 唤醒 AI 电子鼻大脑
-  Control_ENose_Init();
 
   for(;;)
   {
@@ -600,8 +595,6 @@ void StartUSBTask(void *argument)
           usb_rx_ready = 0;               // 清理现场，接收下一波
       }
 
-      Control_ENose_Tick();
-     
       Control_Update_Routine();
 
       //3. 呼叫通讯大队 (智能分发 JSON 快慢信号)
@@ -651,13 +644,10 @@ void StartEnoseTask(void *argument)
   /* USER CODE BEGIN StartEnoseTask */
   (void)argument;
 
-  // 1. 初始化电子鼻大脑
-  ENose_Init(&g_enose);
-
-  // 2. 绑定外部重量处理引擎
-  ENose_AttachWeightEngine(&g_enose, &g_weight_engine);
-
+  // 电子鼻及其 Flash 参考集已在创建任务前完成初始化和恢复
   uint32_t last_tick = HAL_GetTick();
+  uint32_t last_log_tick = last_tick;
+  TickType_t last_wake_tick = xTaskGetTickCount();
 
   /* Infinite loop */
   for(;;)
@@ -685,20 +675,90 @@ void StartEnoseTask(void *argument)
     raw[4] = sysData.hx711.weight;
 
     // 4. 驱动电子鼻主生命周期、红外门控与 VPD 动态评估
-    ENose_State_t current_state = ENose_Tick(&g_enose, raw, now_ms, dt_min);
+    ENose_State_t current_state = ENose_Tick(&sysData.enose, raw, now_ms, dt_min);
 
-    // 5. 将计算好的运行模式与判定结果刷入全局 sysData 中枢，供 UI 看板与 JSON 上报
-    sysData.enose.mode  = (int)g_enose.mode;
-    sysData.enose.state = (int)current_state;
+    // 5. 根据同一份电子鼻状态更新自动控制策略
+    Control_ENose_Tick();
 
-    // 1秒周期循环
-    osDelay(1000);
+    // 6. 仅在数据有效、判定有效且 Flash 在线时定时追加日志
+    if (sysData.flash1.status == 1 &&
+        current_state != ENOSE_UNKNOWN &&
+        ENose_RawDataReady() &&
+        (uint32_t)(now_ms - last_log_tick) >= ENOSE_LOG_INTERVAL_MS) {
+        osMutexAcquire(flash_mutex, osWaitForever);
+        FlashMgr_AppendLog(
+            &sysData.enose,
+            sysData.env.aht_temp,
+            sysData.env.aht_hum,
+            sysData.bme688.food_spoilage_risk,
+            sysData.enose.actual_total_loss_g
+        );
+        osMutexRelease(flash_mutex);
+        last_log_tick = now_ms;
+    }
+
+    // 固定 1Hz 调度，避免任务执行时间逐拍累积到采样周期
+    vTaskDelayUntil(&last_wake_tick, pdMS_TO_TICKS(ENOSE_TASK_PERIOD_MS));
   }
   /* USER CODE END StartEnoseTask */
 }
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+
+static void System_Startup_Routine(void)
+{
+  float restored_weight_anchor = 0.0f;
+
+  SysTime_Init();
+
+  /*
+   * SPI2/GPIO 已由 main() 初始化，此处只绑定器件并完成健康检查。
+   * Flash 1 保存系统配置、电子鼻参考集和环形日志。
+   */
+  W25Q64_Init();
+
+  sysData.flash1.id = W25Q64_ReadID(0);
+  if (sysData.flash1.id == 0xEF4017U) {
+    sysData.flash1.rw_test = W25Q64_SanityCheck(0);
+    sysData.flash1.status = (sysData.flash1.rw_test == 1) ? 1 : 0;
+  } else {
+    sysData.flash1.status = 0;
+  }
+
+  sysData.flash2.id = W25Q64_ReadID(1);
+  if (sysData.flash2.id == 0xEF4017U) {
+    sysData.flash2.rw_test = W25Q64_SanityCheck(1);
+    sysData.flash2.status = (sysData.flash2.rw_test == 1) ? 1 : 0;
+  } else {
+    sysData.flash2.status = 0;
+  }
+
+  // 先建立确定的 RAM 默认状态，再用有效 Flash 数据覆盖
+  FridgeWeight_Init(&g_weight_engine);
+  ENose_Init(&sysData.enose);
+  sysData.enose.scale[4] = 75.0f;
+  ENose_AttachWeightEngine(&sysData.enose, &g_weight_engine);
+
+  if (sysData.flash1.status == 1) {
+    FlashMgr_Init();
+
+    if (FlashMgr_LoadSysState(NULL, NULL, &restored_weight_anchor)) {
+      g_weight_engine.base_anchor_weight = restored_weight_anchor;
+      g_weight_engine.last_stable_w = restored_weight_anchor;
+    }
+
+    FlashMgr_LoadEnoseClasses(&sysData.enose);
+  }
+}
+
+static uint8_t ENose_RawDataReady(void)
+{
+  return (sysData.sgp40.status == 1 &&
+          sysData.env.status == 1 &&
+          sysData.bme688.status == 1 &&
+          sysData.hx711.status == 1) ? 1U : 0U;
+}
 
 /* USER CODE END Application */
 

@@ -144,9 +144,10 @@ void Control_Set_DuctFans(uint8_t count)
   */
 void Control_ENose_Init(void)
 {
-    ENose_Init(&sysData.enose);
-    // 失重通道量程定制：假设初始水果 500g，允许 15% 失重，就是 75g
-    sysData.enose.scale[4] = 75.0f; 
+    /*
+     * 电子鼻由 System_Startup_Routine() 在任务创建前统一初始化和恢复。
+     * 保留此 API 以兼容旧调用，但禁止在运行阶段再次清空状态。
+     */
 }
 
 /**
@@ -154,28 +155,12 @@ void Control_ENose_Init(void)
   */
 void Control_ENose_Tick(void)
 {
-    static TickType_t last_enose_tick = 0;
-    TickType_t current_tick = xTaskGetTickCount();
-
-    // 电子鼻不需要 50ms 那么快，每 1 0秒 (10000ms) 嗅探一次足够了
-    if ((current_tick - last_enose_tick) >= 10000) {
-        
-        // 1. 采集 5 路传感器特征值，对齐通道
-        float raw[ENOSE_NUM_CH] = {
-            (float)sysData.sgp40.raw,      // [0] SGP40 VOC 原始值
-            (float)sysData.env.ens_tvoc,   // [1] ENS160 TVOC
-            (float)sysData.env.ens_eco2,   // [2] ENS160 eCO2
-            sysData.bme688.gas_res,        // [3] BME688 气体电阻
-            sysData.hx711.weight           // [4] HX711 称重
-        };
-
-        // 2. 喂给 AI 引擎，获取当前状态
-        // 参数 dt_min 是时间增量，1秒 = 1.0/60.0 分钟
-        ENose_State_t state = ENose_Tick(&sysData.enose, raw, current_tick, 1.0f/60.0f);
-
-        // 3.  全自动接管：如果 AI 处于运行状态，自动控制执行器！
-        if (sysData.enose.mode == MODE_RUN) {
-            switch (state) {
+    /*
+     * 采样和 ENose_Tick() 只允许由 StartEnoseTask 执行。
+     * 本函数只把已经计算好的状态映射到执行器，避免双实例、双时间轴。
+     */
+    if (sysData.enose.mode == MODE_RUN) {
+        switch (sysData.enose.state) {
                 case ENOSE_FRESH:
                     // 新鲜：维持低功耗，全部关停
                     Control_Set_Coolers(0); Control_Set_DuctFans(0); sysData.relays.uv_lamp = 0;
@@ -194,8 +179,6 @@ void Control_ENose_Tick(void)
                     break;
                 default:
                     break;
-            }
         }
-        last_enose_tick = current_tick;
     }
 }

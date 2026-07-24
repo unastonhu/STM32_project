@@ -1,3 +1,9 @@
 build
 mx.scratch
 !.settings
+AI_Training/data/*
+!AI_Training/data/.gitkeep
+AI_Training/artifacts/*
+!AI_Training/artifacts/.gitkeep
+__pycache__/
+*.pyc

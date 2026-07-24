@@ -56,11 +56,14 @@ static void DataExport_StartChunk(
     s_build_chunk.length = (uint16_t)snprintf(
         s_build_chunk.data,
         sizeof(s_build_chunk.data),
-        "#EXPORT_CHUNK,id=%lu,seq=%lu,label=%u,model=%lu\r\n",
+        "#EXPORT_CHUNK,id=%lu,seq=%lu,label=%u,model=%lu,"
+        "start=%lu,end=%lu\r\n",
         (unsigned long)group->group_id,
         (unsigned long)sequence,
         (unsigned int)group->label,
-        (unsigned long)group->model_version
+        (unsigned long)group->model_version,
+        (unsigned long)group->start_timestamp,
+        (unsigned long)group->end_timestamp
     );
 
     if (first) {

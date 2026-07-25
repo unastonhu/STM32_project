@@ -42,6 +42,12 @@ typedef struct {
 #define SAMPLE_LIBRARY_FLASH_ADDR_BASE 0x004000U
 #define SAMPLE_LIBRARY_FLASH_AREA_SIZE 0x008000U
 #define SAMPLE_LIBRARY_MODEL_VERSION        1U
+/*
+ * 60 个 1 Hz 采样点覆盖首尾相差 59 秒的闭区间。
+ * 更短的标注不可能形成 Cube.AI 的一个完整输入窗口，直接拒绝，避免出现
+ * “样本添加成功但原型重建没有变化”的误导结果。
+ */
+#define SAMPLE_LIBRARY_MIN_RANGE_SECONDS    59U
 
 /*
  * Recover all valid sample edit records from Flash.

@@ -13,6 +13,8 @@ typedef struct {
     uint32_t requested_exports;
     uint32_t completed_exports;
     uint32_t failed_exports;
+    uint32_t completed_inferences;
+    uint32_t skipped_inferences;
 } PrototypeWorkerStats_t;
 
 /* 绑定在 freertos.c 中创建的低优先级任务。 */

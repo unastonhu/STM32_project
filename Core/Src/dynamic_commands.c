@@ -203,10 +203,12 @@ bool DynamicCommands_Handle(const char *json)
         AIFeatureExtractorStatus_t runtime;
         PrototypeHeadInfo_t info;
         PrototypeResult_t result;
+        PrototypeWorkerStats_t worker;
 
         AIFeatureExtractor_GetStatus(&runtime);
         PrototypeHead_GetInfo(&info);
         PrototypeHead_GetLastResult(&result);
+        PrototypeWorker_GetStats(&worker);
         (void)USB_Reporter_QueueResponse(
             "{\"cmd\":\"AI_STATUS\",\"generation\":%lu,"
             "\"model\":%lu,\"groups_used\":%lu,\"groups_skipped\":%lu,"
@@ -219,7 +221,11 @@ bool DynamicCommands_Handle(const char *json)
             "\"smoke\":%u,\"model\":%lu,\"in\":%u,\"out\":%u,"
             "\"ok\":%lu,\"fail\":%lu,\"rejected\":%lu,"
             "\"mutex_to\":%lu,\"err_type\":%u,"
-            "\"err_code\":%u}}\r\n",
+            "\"err_code\":%u},"
+            "\"worker\":{\"rebuild_req\":%lu,\"rebuild_ok\":%lu,"
+            "\"rebuild_fail\":%lu,\"export_req\":%lu,"
+            "\"export_ok\":%lu,\"export_fail\":%lu,"
+            "\"infer_ok\":%lu,\"infer_skip\":%lu}}\r\n",
             (unsigned long)info.generation,
             (unsigned long)info.model_version,
             (unsigned long)info.groups_used,
@@ -248,7 +254,15 @@ bool DynamicCommands_Handle(const char *json)
             (unsigned long)runtime.rejected_windows,
             (unsigned long)runtime.mutex_timeouts,
             (unsigned int)runtime.last_error_type,
-            (unsigned int)runtime.last_error_code
+            (unsigned int)runtime.last_error_code,
+            (unsigned long)worker.requested_rebuilds,
+            (unsigned long)worker.completed_rebuilds,
+            (unsigned long)worker.failed_rebuilds,
+            (unsigned long)worker.requested_exports,
+            (unsigned long)worker.completed_exports,
+            (unsigned long)worker.failed_exports,
+            (unsigned long)worker.completed_inferences,
+            (unsigned long)worker.skipped_inferences
         );
         return true;
     }

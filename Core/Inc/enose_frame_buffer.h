@@ -34,5 +34,13 @@ void ENoseFrameBuffer_Push(const ENoseFrame_t *frame);
 uint16_t ENoseFrameBuffer_GetCount(void);
 bool ENoseFrameBuffer_GetLatest(ENoseFrame_t *out_frame);
 bool ENoseFrameBuffer_GetFromNewest(uint16_t offset, ENoseFrame_t *out_frame);
+/*
+ * 一次性复制最近 count 帧，输出顺序为最旧 -> 最新。
+ * 整个快照只进入一次临界区，避免分类读取中途被 1 Hz Push 改变 ring head。
+ */
+bool ENoseFrameBuffer_CopyLatest(
+    ENoseFrame_t *out_frames,
+    uint16_t count
+);
 
 #endif /* ENOSE_FRAME_BUFFER_H */

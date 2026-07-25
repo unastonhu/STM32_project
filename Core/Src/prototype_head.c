@@ -11,9 +11,10 @@
 #include "w25q64.h"
 
 #define PROTOTYPE_SNAPSHOT_MAGIC          0x50524F54UL /* "PROT" */
-#define PROTOTYPE_SNAPSHOT_FORMAT_VERSION 1U
+#define PROTOTYPE_SNAPSHOT_FORMAT_VERSION 2U
 #define PROTOTYPE_HISTORY_READ_BATCH      32U
 #define PROTOTYPE_TRAINING_STRIDE         15U
+#define PROTOTYPE_SCALE_FLOOR             1.0e-3f
 #define PROTOTYPE_REJECTION_DISTANCE      3.0f
 
 /*
@@ -442,18 +443,22 @@ static void PrototypeHead_BuildSnapshot(
     /*
      * 使用全体训练特征的逐维标准差做缩放。
      * 后续距离等价于对角协方差的 Mahalanobis 距离，比裸欧氏距离更适合
-     * 当前不同尺度的统计特征；floor_scale 防止小样本方差为零。
+     * CNN embedding 的不同尺度；统一 floor 防止小样本方差为零。
+     *
+     * 旧版按“均值/方差/趋势”的维度位置使用不同下限，那只适用于已经删除
+     * 的手工统计特征。快照格式升到 2，确保旧 scale 会被判无效并重建。
      */
     for (uint32_t dim = 0U; dim < AI_FEATURE_DIMENSION; dim++) {
-        float floor_scale =
-            dim < ENOSE_NUM_CH ? 0.05f :
-            dim < 3U * ENOSE_NUM_CH ? 0.01f : 0.05f;
         double mean = global_sum[dim] / (double)total_count;
         double variance =
             global_sum_sq[dim] / (double)total_count - mean * mean;
 
-        if (variance < (double)floor_scale * floor_scale) {
-            variance = (double)floor_scale * floor_scale;
+        if (variance <
+            (double)PROTOTYPE_SCALE_FLOOR *
+                PROTOTYPE_SCALE_FLOOR) {
+            variance =
+                (double)PROTOTYPE_SCALE_FLOOR *
+                PROTOTYPE_SCALE_FLOOR;
         }
         snapshot->scale[dim] = sqrtf((float)variance);
     }
@@ -701,17 +706,14 @@ publish_result:
 
 bool PrototypeHead_ClassifyLatest(PrototypeResult_t *out_result)
 {
-    /* 使用静态窗口，避免 60 帧约 1.7 KB 数据压垮 StartEnoseTask 的栈。 */
-    if (ENoseFrameBuffer_GetCount() < AI_FEATURE_WINDOW_FRAMES) {
+    /*
+     * 静态窗口避免约 1.7 KB 数据压任务栈；一次性复制还保证 1 Hz Push
+     * 不会在读取 60 帧中途移动 ring head。
+     */
+    if (!ENoseFrameBuffer_CopyLatest(
+            s_live_window,
+            AI_FEATURE_WINDOW_FRAMES)) {
         return false;
-    }
-
-    for (uint16_t i = 0U; i < AI_FEATURE_WINDOW_FRAMES; i++) {
-        uint16_t offset =
-            (uint16_t)(AI_FEATURE_WINDOW_FRAMES - 1U - i);
-        if (!ENoseFrameBuffer_GetFromNewest(offset, &s_live_window[i])) {
-            return false;
-        }
     }
 
     return PrototypeHead_ClassifyWindow(s_live_window, out_result);

@@ -107,6 +107,54 @@ FAST/SLOW 监控日志可以检查传感器是否在线、数值是否卡死，�
 RAM/Flash、60×5 输入和16维输出调用。它没有接受虚构标签训练，不能用于
 宣称新鲜度分类准确率；配套清单会明确记录这一限制。
 
+### PC 端完整回放
+
+有 `#EXPORT_CHUNK` 格式的 1 Hz 样本后，可以在不连接开发板的情况下回放：
+
+```powershell
+.\.venv312\Scripts\python.exe replay_pipeline.py `
+  --input data `
+  --model artifacts\smoke\enose_integration_smoke_float32.tflite `
+  --output artifacts\replay_report.json
+```
+
+回放器执行与固件相同的窗口筛选、`log1p + mean/std`、TFLite 16 维特征、
+逐维标准化原型距离、拒识和置信度计算。冒烟模型报告始终明确标为
+`valid_for_freshness_accuracy=false`。
+
+无需修改原始导出文件即可模拟用户编辑样本库：
+
+```powershell
+# 模拟删除 group_id=3
+.\.venv312\Scripts\python.exe replay_pipeline.py --input data --delete-id 3
+
+# 模拟把 group_id=4 改成“腐坏”(label=2)
+.\.venv312\Scripts\python.exe replay_pipeline.py --input data --relabel 4:2
+```
+
+报告同时保留 `baseline` 和 `edited`，可以直接比较编辑前后的窗口数、
+Prototype 和整组留出结果。FAST/SLOW 监控日志不会被插值伪造成 1 Hz
+训练数据；没有合格导出窗口时，回放器会明确拒绝。
+
+### 新板到货前的软件演示
+
+可以生成一套确定性的合成数据，把动态样本库链路完整跑一遍：
+
+```powershell
+.\.venv312\Scripts\python.exe generate_demo_exports.py
+
+.\.venv312\Scripts\python.exe replay_pipeline.py `
+  --input data\demo_dynamic_library.txt `
+  --model artifacts\smoke\enose_integration_smoke_float32.tflite `
+  --delete-id 1 `
+  --relabel 3:2 `
+  --output artifacts\demo_dynamic_report.json
+```
+
+报告中的 `comparison` 会列出编辑前后的样本组数、各标签窗口数和原型是否
+变化。这些数据和当前随机权重 smoke model 只能用于线下展示软件交互与数据
+流，不能当成真实果蔬实验，也不能用于准确率、召回率等论文结果。
+
 ## 串口采样工具
 
 列出设备：
@@ -125,7 +173,8 @@ RAM/Flash、60×5 输入和16维输出调用。它没有接受虚构标签训练
 
 `preflight` 会自动发送 `START`，并检查设备时间、四组传感器状态、两片
 W25Q64、FreeRTOS 历史最低剩余 heap、样本库响应和当前特征模型版本。
-`monitor` 也会自动发送 `START`，因此不会再一直停留在 `WAITING`。
+它还会显示低优先级 AI Worker 的推理、重建和导出计数，方便确认任务确实
+被调度。`monitor` 也会自动发送 `START`，因此不会再一直停留在 `WAITING`。
 
 把某个时间区间标成“不新鲜”，然后按返回的样本 ID 导出：
 

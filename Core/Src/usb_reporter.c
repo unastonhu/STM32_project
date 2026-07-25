@@ -16,10 +16,10 @@
 
 static char usb_tx_buf[1024];
 /*
- * AI_STATUS 包含模型自检、推理计数和原型状态，384 字节已经不足。
+ * AI_STATUS 包含模型自检、推理计数、原型和 Worker 调度状态。
  * 这里只扩大低频命令响应缓冲区，不改变 FAST/SLOW 的发送周期或重试策略。
  */
-static char usb_response_buf[640];
+static char usb_response_buf[896];
 static uint16_t usb_response_len;
 static bool usb_response_pending;
 static DataExportChunk_t usb_export_chunk;

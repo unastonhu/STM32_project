@@ -140,7 +140,9 @@ static bool SampleLibrary_RecordValid(const SampleJournalRecord_t *record)
 
     if (record->op == SAMPLE_JOURNAL_UPSERT &&
         (record->label >= SAMPLE_LABEL_COUNT ||
-         record->start_timestamp > record->end_timestamp)) {
+         record->start_timestamp > record->end_timestamp ||
+         record->end_timestamp - record->start_timestamp <
+             SAMPLE_LIBRARY_MIN_RANGE_SECONDS)) {
         return false;
     }
 
@@ -313,6 +315,8 @@ bool SampleLibrary_AddRange(
 
     if (!s_library.initialized ||
         start_timestamp > end_timestamp ||
+        end_timestamp - start_timestamp <
+            SAMPLE_LIBRARY_MIN_RANGE_SECONDS ||
         label >= SAMPLE_LABEL_COUNT ||
         !SampleLibrary_LockFlash()) {
         return false;
@@ -359,6 +363,8 @@ bool SampleLibrary_UpdateRange(
     if (!s_library.initialized ||
         group_id == 0U ||
         start_timestamp > end_timestamp ||
+        end_timestamp - start_timestamp <
+            SAMPLE_LIBRARY_MIN_RANGE_SECONDS ||
         label >= SAMPLE_LABEL_COUNT ||
         !SampleLibrary_LockFlash()) {
         return false;

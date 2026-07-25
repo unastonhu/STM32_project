@@ -109,6 +109,30 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(len(groups[0].records), 60)
         self.assertEqual(groups[0].records[0].uptime_ms, 100000)
 
+    def test_reexport_with_same_metadata_replaces_old_records(self) -> None:
+        """相同样本再次导出也应以最新 seq=0 会话为准。"""
+
+        old_rows = "".join(make_record(index) for index in range(60))
+        new_rows = "".join(make_record(index) for index in range(200, 260))
+        metadata = (
+            "#EXPORT_CHUNK,id=9,seq=0,label=1,model=2,"
+            "start=1000,end=1300\n"
+        )
+        path = self.write_export(
+            metadata
+            + old_rows
+            + "#EXPORT_END,id=9,records=60,invalid=0\n"
+            + metadata
+            + new_rows
+            + "#EXPORT_END,id=9,records=60,invalid=0\n"
+        )
+
+        groups = parse_export_file(path)
+
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(len(groups[0].records), 60)
+        self.assertEqual(groups[0].records[0].uptime_ms, 200000)
+
     def test_generated_c_float_literals_are_valid(self) -> None:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

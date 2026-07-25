@@ -21,6 +21,7 @@ from dataset import (
     split_by_group,
     summarize,
 )
+from prototype_math import classify_embeddings, fit_prototypes
 
 
 EMBEDDING_DIMENSION = 16
@@ -140,33 +141,22 @@ def prototype_evaluate(
     validation_embedding = embedding_model.predict(
         x_validation, verbose=0
     )
-    scale = np.maximum(train_embedding.std(axis=0), 1.0e-3)
-
-    prototypes: dict[int, np.ndarray] = {}
-    for label in sorted(set(y_train.tolist())):
-        prototypes[label] = train_embedding[y_train == label].mean(axis=0)
-
-    predictions: list[int] = []
-    distances: list[float] = []
-    for embedding in validation_embedding:
-        by_label = {
-            label: float(
-                np.mean(np.square((embedding - prototype) / scale))
-            )
-            for label, prototype in prototypes.items()
-        }
-        label = min(by_label, key=by_label.get)
-        predictions.append(label)
-        distances.append(float(np.sqrt(by_label[label])))
-
-    predictions_array = np.asarray(predictions, dtype=np.int64)
+    prototype_model = fit_prototypes(train_embedding, y_train)
+    results = classify_embeddings(prototype_model, validation_embedding)
+    predictions_array = np.asarray(
+        [result.label for result in results],
+        dtype=np.int64,
+    )
+    distances = [result.nearest_distance for result in results]
     confusion = np.zeros((CLASS_COUNT, CLASS_COUNT), dtype=np.int64)
     for expected, predicted in zip(y_validation, predictions_array):
-        confusion[int(expected), int(predicted)] += 1
+        if predicted >= 0:
+            confusion[int(expected), int(predicted)] += 1
 
     return {
         "accuracy": float(np.mean(predictions_array == y_validation)),
         "mean_nearest_distance": float(np.mean(distances)),
+        "rejected_windows": int(np.count_nonzero(predictions_array < 0)),
         "confusion_matrix": confusion.tolist(),
     }
 

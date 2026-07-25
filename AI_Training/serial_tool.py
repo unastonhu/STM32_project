@@ -485,6 +485,21 @@ def main() -> int:
                         "[提示] 当前仍是随机权重冒烟模型，"
                         "只能验证数据流，不能代表新鲜度准确率。"
                     )
+                worker_value = ai_status.get("worker")
+                worker = (
+                    worker_value
+                    if isinstance(worker_value, dict)
+                    else {}
+                )
+                print(
+                    "低优先级 AI Worker："
+                    f"推理成功={worker.get('infer_ok', '?')}, "
+                    f"正常跳过={worker.get('infer_skip', '?')}, "
+                    f"重建={worker.get('rebuild_ok', '?')}/"
+                    f"{worker.get('rebuild_req', '?')}, "
+                    f"导出={worker.get('export_ok', '?')}/"
+                    f"{worker.get('export_req', '?')}"
+                )
                 return 0 if all(item[1] for item in checks) else 3
 
             if args.action == "add":

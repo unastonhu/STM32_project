@@ -95,7 +95,6 @@ extern TIM_HandleTypeDef htim4;
 
 #define ENOSE_TASK_PERIOD_MS  1000U
 #define ENOSE_LOG_INTERVAL_MS 60000U
-#define PROTOTYPE_INFERENCE_INTERVAL_MS 3000U
 
 uint8_t usb_rx_buffer[64] = {0};
 uint8_t usb_rx_flag = 0;
@@ -700,7 +699,6 @@ void StartEnoseTask(void *argument)
   // 电子鼻及其 Flash 参考集已在创建任务前完成初始化和恢复
   uint32_t last_tick = HAL_GetTick();
   uint32_t last_log_tick = last_tick;
-  uint32_t last_prototype_tick = last_tick;
   TickType_t last_wake_tick = xTaskGetTickCount();
 
   /* Infinite loop */
@@ -750,14 +748,10 @@ void StartEnoseTask(void *argument)
     }
 
     /*
-     * 动态原型推理属于慢 AI：每 3 秒观察一次同步窗口，但底层采样仍保持 1 Hz。
-     * 第四步只保存动态结果，不覆盖旧电子鼻状态，等标样验证后再接管控制。
+     * Cube.AI 周期推理已交给低优先级 Task_Prototype。
+     * 本任务只负责严格的 1 Hz 同步采样、状态机和 Flash 入队，避免正式模型
+     * 变大后推理耗时抖动原始数据时间轴。
      */
-    if ((uint32_t)(now_ms - last_prototype_tick) >=
-        PROTOTYPE_INFERENCE_INTERVAL_MS) {
-      (void)PrototypeHead_ClassifyLatest(NULL);
-      last_prototype_tick = now_ms;
-    }
 
     // 4. 驱动电子鼻主生命周期、红外门控与 VPD 动态评估
     ENose_State_t current_state = ENose_Tick(&sysData.enose, frame.raw, now_ms, dt_min);

@@ -115,9 +115,13 @@ def parse_export_file(path: Path) -> list[ExportGroup]:
                     )
 
                 current = groups.get(group_id)
-                if current is None:
+                if current is None or sequence == 0:
                     # 使用独立的非 Optional 变量，让 PyCharm/Pylance 明确知道
                     # 写入字典的一定是 ExportGroup，而不是 ExportGroup | None。
+                    #
+                    # 同一个样本可以在没有修改元数据的情况下再次导出。新的
+                    # seq=0 表示新导出会话，必须替换旧记录，不能把两次历史
+                    # 合并；否则 Flash 环形覆盖后可能把已过期记录带入训练。
                     new_group = ExportGroup(
                         source=str(path.resolve()),
                         group_id=group_id,
@@ -134,21 +138,9 @@ def parse_export_file(path: Path) -> list[ExportGroup]:
                     or current.start_timestamp != start_timestamp
                     or current.end_timestamp != end_timestamp
                 ):
-                    if sequence != 0:
-                        raise ValueError(
-                            f"{path}:{line_number}: 导出中途元数据发生变化"
-                        )
-                    # 样本修改后重新导出：以后一次完整导出为准。
-                    updated_group = ExportGroup(
-                        source=str(path.resolve()),
-                        group_id=group_id,
-                        label=label,
-                        model_version=model_version,
-                        start_timestamp=start_timestamp,
-                        end_timestamp=end_timestamp,
+                    raise ValueError(
+                        f"{path}:{line_number}: 导出中途元数据发生变化"
                     )
-                    groups[group_id] = updated_group
-                    current = updated_group
                 continue
 
             if line.startswith("#EXPORT_END"):

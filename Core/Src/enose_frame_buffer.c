@@ -71,3 +71,48 @@ bool ENoseFrameBuffer_GetFromNewest(uint16_t offset, ENoseFrame_t *out_frame)
     taskEXIT_CRITICAL();
     return found;
 }
+
+bool ENoseFrameBuffer_CopyLatest(
+    ENoseFrame_t *out_frames,
+    uint16_t count)
+{
+    bool copied = false;
+
+    if (out_frames == NULL ||
+        count == 0U ||
+        count > ENOSE_FRAME_BUFFER_CAPACITY) {
+        return false;
+    }
+
+    taskENTER_CRITICAL();
+
+    if (count <= s_count) {
+        uint16_t start = (uint16_t)(
+            (s_head + ENOSE_FRAME_BUFFER_CAPACITY - count) %
+            ENOSE_FRAME_BUFFER_CAPACITY
+        );
+        uint16_t first_count = (uint16_t)(
+            ENOSE_FRAME_BUFFER_CAPACITY - start
+        );
+        if (first_count > count) {
+            first_count = count;
+        }
+
+        memcpy(
+            out_frames,
+            &s_frames[start],
+            sizeof(ENoseFrame_t) * first_count
+        );
+        if (first_count < count) {
+            memcpy(
+                &out_frames[first_count],
+                s_frames,
+                sizeof(ENoseFrame_t) * (count - first_count)
+            );
+        }
+        copied = true;
+    }
+
+    taskEXIT_CRITICAL();
+    return copied;
+}

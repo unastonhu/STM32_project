@@ -110,6 +110,41 @@ def evaluate_preflight(
             f"活动区间={sample_stats.get('count', '?')}",
         )
     )
+
+    runtime_value = ai_status.get("runtime")
+    runtime = runtime_value if isinstance(runtime_value, dict) else {}
+    ready = runtime.get("ready")
+    self_test = runtime.get("selftest")
+    checks.append(
+        (
+            "Cube.AI Runtime",
+            ready == 1 and self_test == 1,
+            "ready="
+            f"{ready}, selftest={self_test}, "
+            f"error={runtime.get('err_type', '?')}:"
+            f"{runtime.get('err_code', '?')}",
+        )
+    )
+    checks.append(
+        (
+            "AI 输入输出契约",
+            runtime.get("in") == 300 and runtime.get("out") == 16,
+            f"{runtime.get('in', '?')} -> {runtime.get('out', '?')}",
+        )
+    )
+
+    runtime_model = runtime.get("model")
+    prototype_model = ai_status.get("model")
+    sample_model = sample_stats.get("model")
+    checks.append(
+        (
+            "AI 模型版本一致",
+            runtime_model == prototype_model == sample_model,
+            "runtime="
+            f"{runtime_model}, prototype={prototype_model}, "
+            f"sample={sample_model}",
+        )
+    )
     return checks
 
 
@@ -432,6 +467,24 @@ def main() -> int:
                     f"generation={ai_status.get('generation', '?')}, "
                     f"labels={ai_status.get('labels', '?')}"
                 )
+                runtime_value = ai_status.get("runtime")
+                runtime = (
+                    runtime_value
+                    if isinstance(runtime_value, dict)
+                    else {}
+                )
+                print(
+                    "Cube.AI 计数："
+                    f"success={runtime.get('ok', '?')}, "
+                    f"failed={runtime.get('fail', '?')}, "
+                    f"rejected={runtime.get('rejected', '?')}, "
+                    f"mutex_timeout={runtime.get('mutex_to', '?')}"
+                )
+                if runtime.get("smoke") == 1:
+                    print(
+                        "[提示] 当前仍是随机权重冒烟模型，"
+                        "只能验证数据流，不能代表新鲜度准确率。"
+                    )
                 return 0 if all(item[1] for item in checks) else 3
 
             if args.action == "add":

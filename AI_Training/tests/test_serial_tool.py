@@ -64,11 +64,26 @@ class SerialToolTest(unittest.TestCase):
             "bme": {"s": 1},
             "hx": {"s": 1},
         }
-        stats = {"cmd": "SAMPLE_STATS", "count": 0}
+        stats = {
+            "cmd": "SAMPLE_STATS",
+            "count": 0,
+            "model": 2,
+        }
         status = {
+            "model": 2,
             "flash_cfg": 1,
             "flash_history": 1,
             "heap_min": 8192,
+            "runtime": {
+                "ready": 1,
+                "selftest": 1,
+                "smoke": 1,
+                "model": 2,
+                "in": 300,
+                "out": 16,
+                "err_type": 0,
+                "err_code": 0,
+            },
         }
 
         checks = evaluate_preflight(slow, stats, status)
@@ -83,11 +98,26 @@ class SerialToolTest(unittest.TestCase):
             "bme": {"s": 1},
             "hx": {"s": 1},
         }
-        stats = {"cmd": "SAMPLE_STATS", "count": 0}
+        stats = {
+            "cmd": "SAMPLE_STATS",
+            "count": 0,
+            "model": 2,
+        }
         status = {
+            "model": 2,
             "flash_cfg": 1,
             "flash_history": 0,
             "heap_min": 8192,
+            "runtime": {
+                "ready": 1,
+                "selftest": 1,
+                "smoke": 1,
+                "model": 2,
+                "in": 300,
+                "out": 16,
+                "err_type": 0,
+                "err_code": 0,
+            },
         }
 
         failed = {
@@ -98,6 +128,46 @@ class SerialToolTest(unittest.TestCase):
             if not passed
         }
         self.assertEqual(failed, {"SGP40", "历史 Flash"})
+
+    def test_preflight_reports_cube_ai_self_test_failure(self) -> None:
+        slow = {
+            "cmd": "SLOW",
+            "ts": 1_800_000_000,
+            "sgp": {"s": 1},
+            "env": {"s": 1},
+            "bme": {"s": 1},
+            "hx": {"s": 1},
+        }
+        stats = {
+            "cmd": "SAMPLE_STATS",
+            "count": 0,
+            "model": 2,
+        }
+        status = {
+            "model": 2,
+            "flash_cfg": 1,
+            "flash_history": 1,
+            "heap_min": 8192,
+            "runtime": {
+                "ready": 0,
+                "selftest": 0,
+                "smoke": 1,
+                "model": 2,
+                "in": 300,
+                "out": 16,
+                "err_type": 10,
+                "err_code": 3,
+            },
+        }
+
+        failed = {
+            name
+            for name, passed, _ in evaluate_preflight(
+                slow, stats, status
+            )
+            if not passed
+        }
+        self.assertEqual(failed, {"Cube.AI Runtime"})
 
 
 if __name__ == "__main__":

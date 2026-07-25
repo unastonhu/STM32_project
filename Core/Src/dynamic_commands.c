@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "FreeRTOS.h"
+#include "ai_feature_extractor.h"
 #include "data_export.h"
 #include "prototype_head.h"
 #include "prototype_worker.h"
@@ -199,9 +200,11 @@ bool DynamicCommands_Handle(const char *json)
     }
 
     if (DynamicCommands_Is(json, "AI_STATUS")) {
+        AIFeatureExtractorStatus_t runtime;
         PrototypeHeadInfo_t info;
         PrototypeResult_t result;
 
+        AIFeatureExtractor_GetStatus(&runtime);
         PrototypeHead_GetInfo(&info);
         PrototypeHead_GetLastResult(&result);
         (void)USB_Reporter_QueueResponse(
@@ -211,7 +214,12 @@ bool DynamicCommands_Handle(const char *json)
             "\"rebuilding\":%u,\"result\":%d,\"valid\":%u,"
             "\"confidence\":%.3f,\"distance\":%.3f,"
             "\"flash_cfg\":%u,\"flash_history\":%u,"
-            "\"heap_free\":%lu,\"heap_min\":%lu}\r\n",
+            "\"heap_free\":%lu,\"heap_min\":%lu,"
+            "\"runtime\":{\"ready\":%u,\"selftest\":%u,"
+            "\"smoke\":%u,\"model\":%lu,\"in\":%u,\"out\":%u,"
+            "\"ok\":%lu,\"fail\":%lu,\"rejected\":%lu,"
+            "\"mutex_to\":%lu,\"err_type\":%u,"
+            "\"err_code\":%u}}\r\n",
             (unsigned long)info.generation,
             (unsigned long)info.model_version,
             (unsigned long)info.groups_used,
@@ -228,7 +236,19 @@ bool DynamicCommands_Handle(const char *json)
             (unsigned int)sysData.flash1.status,
             (unsigned int)sysData.flash2.status,
             (unsigned long)xPortGetFreeHeapSize(),
-            (unsigned long)xPortGetMinimumEverFreeHeapSize()
+            (unsigned long)xPortGetMinimumEverFreeHeapSize(),
+            (unsigned int)runtime.ready,
+            (unsigned int)runtime.self_test_passed,
+            (unsigned int)runtime.smoke_test_model,
+            (unsigned long)runtime.model_version,
+            (unsigned int)runtime.input_elements,
+            (unsigned int)runtime.output_elements,
+            (unsigned long)runtime.successful_inferences,
+            (unsigned long)runtime.failed_inferences,
+            (unsigned long)runtime.rejected_windows,
+            (unsigned long)runtime.mutex_timeouts,
+            (unsigned int)runtime.last_error_type,
+            (unsigned int)runtime.last_error_code
         );
         return true;
     }

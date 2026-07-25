@@ -5,6 +5,7 @@
 
 #include "FreeRTOS.h"
 #include "semphr.h"
+#include "task.h"
 
 #include "enose_network.h"
 #include "enose_network_data.h"
@@ -54,6 +55,16 @@ static ai_handle s_ai_network = AI_HANDLE_NULL;
 static ai_buffer *s_ai_inputs;
 static ai_buffer *s_ai_outputs;
 static AIFeatureState_t s_ai_state;
+static AIFeatureExtractorStatus_t s_ai_status = {
+    .model_version = AI_FEATURE_EXTRACTOR_VERSION,
+    .input_elements = AI_ENOSE_NETWORK_IN_1_SIZE,
+    .output_elements = AI_ENOSE_NETWORK_OUT_1_SIZE,
+#if defined(AI_TRAINED_ARTIFACT_IS_SMOKE_TEST)
+    .smoke_test_model = 1U
+#else
+    .smoke_test_model = 0U
+#endif
+};
 
 /*
  * 实时分类和样本库重建属于两个不同任务，不能同时改写 activation buffer。
@@ -61,6 +72,45 @@ static AIFeatureState_t s_ai_state;
  */
 static StaticSemaphore_t s_ai_mutex_storage;
 static SemaphoreHandle_t s_ai_mutex;
+
+static void AIFeatureExtractor_SaveError(ai_error error)
+{
+    s_ai_status.last_error_type = (uint8_t)error.type;
+    s_ai_status.last_error_code = (uint8_t)error.code;
+}
+
+static bool AIFeatureExtractor_RunBootSelfTest(void)
+{
+    float *network_input = (float *)s_ai_inputs[0].data;
+    const float *network_output;
+
+    /*
+     * 这不是准确率测试，只检查 MCU Runtime 能否真正执行全部算子。
+     * 使用全零张量不会依赖传感器、Flash 样本或门状态。
+     */
+    memset(
+        network_input,
+        0,
+        sizeof(float) * AI_ENOSE_NETWORK_IN_1_SIZE
+    );
+    if (ai_enose_network_run(
+            s_ai_network,
+            s_ai_inputs,
+            s_ai_outputs) != 1) {
+        AIFeatureExtractor_SaveError(
+            ai_enose_network_get_error(s_ai_network)
+        );
+        return false;
+    }
+
+    network_output = (const float *)s_ai_outputs[0].data;
+    for (uint32_t dim = 0U; dim < AI_FEATURE_DIMENSION; dim++) {
+        if (!isfinite(network_output[dim])) {
+            return false;
+        }
+    }
+    return true;
+}
 
 bool AIFeatureExtractor_Init(void)
 {
@@ -79,6 +129,7 @@ bool AIFeatureExtractor_Init(void)
     s_ai_mutex = xSemaphoreCreateMutexStatic(&s_ai_mutex_storage);
     if (s_ai_mutex == NULL) {
         s_ai_state = AI_FEATURE_STATE_FAILED;
+        s_ai_status.failed_inferences++;
         return false;
     }
 
@@ -92,7 +143,9 @@ bool AIFeatureExtractor_Init(void)
         NULL
     );
     if (error.type != AI_ERROR_NONE) {
+        AIFeatureExtractor_SaveError(error);
         s_ai_state = AI_FEATURE_STATE_FAILED;
+        s_ai_status.failed_inferences++;
         return false;
     }
 
@@ -105,16 +158,41 @@ bool AIFeatureExtractor_Init(void)
         (void)ai_enose_network_destroy(s_ai_network);
         s_ai_network = AI_HANDLE_NULL;
         s_ai_state = AI_FEATURE_STATE_FAILED;
+        s_ai_status.failed_inferences++;
+        return false;
+    }
+
+    if (!AIFeatureExtractor_RunBootSelfTest()) {
+        (void)ai_enose_network_destroy(s_ai_network);
+        s_ai_network = AI_HANDLE_NULL;
+        s_ai_inputs = NULL;
+        s_ai_outputs = NULL;
+        s_ai_state = AI_FEATURE_STATE_FAILED;
+        s_ai_status.failed_inferences++;
         return false;
     }
 
     s_ai_state = AI_FEATURE_STATE_READY;
+    s_ai_status.ready = 1U;
+    s_ai_status.self_test_passed = 1U;
     return true;
 }
 
 bool AIFeatureExtractor_IsReady(void)
 {
     return s_ai_state == AI_FEATURE_STATE_READY;
+}
+
+void AIFeatureExtractor_GetStatus(
+    AIFeatureExtractorStatus_t *out_status)
+{
+    if (out_status == NULL) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    *out_status = s_ai_status;
+    taskEXIT_CRITICAL();
 }
 
 static float AIFeatureExtractor_Transform(float value)
@@ -139,6 +217,9 @@ bool AIFeatureExtractor_Extract(
     if (frames == NULL ||
         embedding == NULL ||
         s_ai_state != AI_FEATURE_STATE_READY) {
+        taskENTER_CRITICAL();
+        s_ai_status.rejected_windows++;
+        taskEXIT_CRITICAL();
         return false;
     }
 
@@ -156,6 +237,9 @@ bool AIFeatureExtractor_Extract(
              * 但任何 NaN/Inf 都会污染整个神经网络，必须直接拒绝该窗口。
              */
             if (!isfinite(frames[i].raw[ch])) {
+                taskENTER_CRITICAL();
+                s_ai_status.rejected_windows++;
+                taskEXIT_CRITICAL();
                 return false;
             }
             if ((frames[i].valid_mask & (1U << ch)) != 0U) {
@@ -166,17 +250,27 @@ bool AIFeatureExtractor_Extract(
 
     for (uint32_t ch = 0U; ch < ENOSE_NUM_CH; ch++) {
         if (valid_count[ch] < AI_FEATURE_MIN_VALID_FRAMES) {
+            taskENTER_CRITICAL();
+            s_ai_status.rejected_windows++;
+            taskEXIT_CRITICAL();
             return false;
         }
     }
     /* 开门超过 10% 会快速换气并引入称重扰动，不参与训练/分类。 */
     if (door_closed_count < AI_FEATURE_MIN_VALID_FRAMES) {
+        taskENTER_CRITICAL();
+        s_ai_status.rejected_windows++;
+        taskEXIT_CRITICAL();
         return false;
     }
 
     if (xSemaphoreTake(
             s_ai_mutex,
             pdMS_TO_TICKS(AI_FEATURE_MUTEX_TIMEOUT_MS)) != pdTRUE) {
+        taskENTER_CRITICAL();
+        s_ai_status.failed_inferences++;
+        s_ai_status.mutex_timeouts++;
+        taskEXIT_CRITICAL();
         return false;
     }
 
@@ -197,6 +291,10 @@ bool AIFeatureExtractor_Extract(
             s_ai_network,
             s_ai_inputs,
             s_ai_outputs) != 1) {
+        ai_error error = ai_enose_network_get_error(s_ai_network);
+        taskENTER_CRITICAL();
+        AIFeatureExtractor_SaveError(error);
+        taskEXIT_CRITICAL();
         goto release_mutex;
     }
 
@@ -210,6 +308,13 @@ bool AIFeatureExtractor_Extract(
     success = true;
 
 release_mutex:
+    taskENTER_CRITICAL();
+    if (success) {
+        s_ai_status.successful_inferences++;
+    } else {
+        s_ai_status.failed_inferences++;
+    }
+    taskEXIT_CRITICAL();
     (void)xSemaphoreGive(s_ai_mutex);
     if (!success) {
         memset(embedding, 0, sizeof(float) * AI_FEATURE_DIMENSION);

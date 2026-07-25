@@ -15,7 +15,11 @@
 #include "dynamic_commands.h"
 
 static char usb_tx_buf[1024];
-static char usb_response_buf[384];
+/*
+ * AI_STATUS 包含模型自检、推理计数和原型状态，384 字节已经不足。
+ * 这里只扩大低频命令响应缓冲区，不改变 FAST/SLOW 的发送周期或重试策略。
+ */
+static char usb_response_buf[640];
 static uint16_t usb_response_len;
 static bool usb_response_pending;
 static DataExportChunk_t usb_export_chunk;

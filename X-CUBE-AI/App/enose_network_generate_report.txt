@@ -1,0 +1,206 @@
+ST Edge AI Core v2.1.0-20194 329b0e98d
+Created date          : 2026-07-25 01:34:18
+Parameters            : generate --target stm32f4 --name enose_network -m C:/Users/12645/Desktop/New_Folder/STM32_project/AI_Training/artifacts/smoke/enose_integration_smoke_float32.tflite --compression none --verbosity 1 --workspace C:/Users/12645/AppData/Local/Temp/mxAI_workspace1126271905770017625660523479141735 --output C:/Users/12645/.stm32cubemx/enose_network_output
+
+Exec/report summary (generate)
+--------------------------------------------------------------------------------------------------------------------------------------------
+model file         :   C:\Users\12645\Desktop\New_Folder\STM32_project\AI_Training\artifacts\smoke\enose_integration_smoke_float32.tflite   
+type               :   tflite                                                                                                               
+c_name             :   enose_network                                                                                                        
+compression        :   none                                                                                                                 
+options            :   allocate-inputs, allocate-outputs                                                                                    
+optimization       :   balanced                                                                                                             
+target/series      :   stm32f4                                                                                                              
+workspace dir      :   C:\Users\12645\AppData\Local\Temp\mxAI_workspace1126271905770017625660523479141735                                   
+output dir         :   C:\Users\12645\.stm32cubemx\enose_network_output                                                                     
+model_fmt          :   float                                                                                                                
+model_name         :   enose_integration_smoke_float32                                                                                      
+model_hash         :   0x20a62a56aea16235eac1b16ae2df3113                                                                                   
+params #           :   1,976 items (7.72 KiB)                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------
+input 1/1          :   'serving_default_enose_window0', f32(1x60x5), 1.17 KBytes, activations                                               
+output 1/1         :   'gemm_10', f32(1x16), 64 Bytes, activations                                                                          
+macc               :   62,344                                                                                                               
+weights (ro)       :   7,904 B (7.72 KiB) (1 segment)                                                                                       
+activations (rw)   :   5,140 B (5.02 KiB) (1 segment) *                                                                                     
+ram (total)        :   5,140 B (5.02 KiB) = 5,140 + 0 + 0                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------
+(*) 'input'/'output' buffers can be used from the activations buffer
+
+Model name - enose_integration_smoke_float32
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+m_id   layer (type,original)                     oshape                param/size        macc                    connected to   | c_size   c_macc          c_type                        
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+0      serving_default_enose_window0 (Input, )   [b:1,h:60,c:5]                                                                 |                          
+       reshape_0 (Reshape, EXPAND_DIMS)          [b:1,h:1,w:60,c:5]                             serving_default_enose_window0   |                          
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+1      conv2d_1 (Conv2D, CONV_2D)                [b:1,h:1,w:60,c:16]   416/1,664       24,016                       reshape_0   |          +960(+4.0%)     Conv2D_/Nonlinearity_[0, 1]   
+       nl_1_nl (Nonlinearity, CONV_2D)           [b:1,h:1,w:60,c:16]                      960                        conv2d_1   |          -960(-100.0%)   
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+2      reshape_2 (Reshape, RESHAPE)              [b:1,h:60,c:16]                                                      nl_1_nl   |                          
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+3      reshape_3 (Reshape, EXPAND_DIMS)          [b:1,h:1,w:60,c:16]                                                reshape_2   |                          
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+4      pool_4 (Pool, MAX_POOL_2D)                [b:1,h:1,w:30,c:16]                      960                       reshape_3   |                          Pool_[2]                      
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+5      reshape_5 (Reshape, RESHAPE)              [b:1,h:30,c:16]                                                       pool_4   |                          
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+6      reshape_6 (Reshape, EXPAND_DIMS)          [b:1,h:1,w:30,c:16]                                                reshape_5   |                          
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+7      conv2d_7 (Conv2D, CONV_2D)                [b:1,h:1,w:30,c:24]   1,176/4,704     34,584                       reshape_6   |          +720(+2.1%)     Conv2D_/Nonlinearity_[3, 4]   
+       nl_7_nl (Nonlinearity, CONV_2D)           [b:1,h:1,w:30,c:24]                      720                        conv2d_7   |          -720(-100.0%)   
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+8      reshape_8 (Reshape, RESHAPE)              [b:1,h:30,c:24]                                                      nl_7_nl   |                          
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+9      pool_9 (Pool, MEAN)                       [b:1,h:1,c:24]                           720                       reshape_8   |                          Pool_[5]                      
+       reshape_9_reshape (Reshape, MEAN)         [b:1,c:24]                                                            pool_9   |                          
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+10     arith_constant5 (Placeholder, )           [b:16,c:24]           384/1,536                                                |          +384(+100.0%)   Dense_[o][6]                  
+       gemm_10 (Gemm, FULLY_CONNECTED)           [b:1,c:16]                               400               reshape_9_reshape   |          -400(-100.0%)   
+                                                                                                              arith_constant5   | 
+------ ----------------------------------------- --------------------- ------------- -------- ------------------------------- --- -------- --------------- ----------------------------- 
+model/c-model: macc=62,360/62,344 -16(-0.0%) weights=7,904/7,904  activations=--/5,140 io=--/0
+
+
+
+Generated C-graph summary
+------------------------------------------------------------------------------------------------------------------------
+model name            : enose_integration_smoke_float32
+c-name                : enose_network
+c-node #              : 7
+c-array #             : 15
+activations size      : 5140 (1 segment)
+weights size          : 7904 (1 segment)
+macc                  : 62344
+inputs                : ['serving_default_enose_window0_output']
+outputs               : ['gemm_10_output']
+
+C-Arrays (15)
+------ -------------------------------------- ----------- ------------------------- ------------- --------- 
+c_id   name (*_array)                         item/size   domain/mem-pool           c-type        comment   
+------ -------------------------------------- ----------- ------------------------- ------------- --------- 
+0      conv2d_1_bias                          16/64       weights/weights           const float             
+1      conv2d_1_output                        960/3840    activations/**default**   float                   
+2      conv2d_1_scratch0                      25/100      activations/**default**   float                   
+3      conv2d_1_weights                       400/1600    weights/weights           const float             
+4      conv2d_7_bias                          24/96       weights/weights           const float             
+5      conv2d_7_output                        720/2880    activations/**default**   float                   
+6      conv2d_7_scratch0                      48/192      activations/**default**   float                   
+7      conv2d_7_weights                       1152/4608   weights/weights           const float             
+8      gemm_10_output                         16/64       activations/**default**   float         /output   
+9      gemm_10_weights                        384/1536    weights/weights           const float             
+10     nl_1_nl_output                         960/3840    activations/**default**   float                   
+11     nl_7_nl_output                         720/2880    activations/**default**   float                   
+12     pool_4_output                          480/1920    activations/**default**   float                   
+13     pool_9_output                          24/96       activations/**default**   float                   
+14     serving_default_enose_window0_output   300/1200    activations/**default**   float         /input    
+------ -------------------------------------- ----------- ------------------------- ------------- --------- 
+
+C-Layers (7)
+------ ---------------- ---- --------------- ------- ------ ----------------------------------------- --------------------- 
+c_id   name (*_layer)   id   layer_type      macc    rom    tensors                                   shape (array id)      
+------ ---------------- ---- --------------- ------- ------ ----------------------------------------- --------------------- 
+0      conv2d_1         1    Conv2D          24016   1664   I: serving_default_enose_window0_output   f32(1x60x5) (14)      
+                                                            S: conv2d_1_scratch0                                            
+                                                            W: conv2d_1_weights                       f32(16x1x5x5) (3)     
+                                                            W: conv2d_1_bias                          f32(16) (0)           
+                                                            O: conv2d_1_output                        f32(1x1x60x16) (1)    
+------ ---------------- ---- --------------- ------- ------ ----------------------------------------- --------------------- 
+1      nl_1_nl          1    Nonlinearity    960     0      I: conv2d_1_output                        f32(1x1x60x16) (1)    
+                                                            O: nl_1_nl_output                         f32(1x1x60x16) (10)   
+------ ---------------- ---- --------------- ------- ------ ----------------------------------------- --------------------- 
+2      pool_4           4    Pool            960     0      I: nl_1_nl_output                         f32(1x1x60x16) (10)   
+                                                            O: pool_4_output                          f32(1x1x30x16) (12)   
+------ ---------------- ---- --------------- ------- ------ ----------------------------------------- --------------------- 
+3      conv2d_7         7    Conv2D          34584   4704   I: pool_4_output                          f32(1x1x30x16) (12)   
+                                                            S: conv2d_7_scratch0                                            
+                                                            W: conv2d_7_weights                       f32(24x1x3x16) (7)    
+                                                            W: conv2d_7_bias                          f32(24) (4)           
+                                                            O: conv2d_7_output                        f32(1x1x30x24) (5)    
+------ ---------------- ---- --------------- ------- ------ ----------------------------------------- --------------------- 
+4      nl_7_nl          7    Nonlinearity    720     0      I: conv2d_7_output                        f32(1x1x30x24) (5)    
+                                                            O: nl_7_nl_output                         f32(1x1x30x24) (11)   
+------ ---------------- ---- --------------- ------- ------ ----------------------------------------- --------------------- 
+5      pool_9           9    Pool            720     0      I: nl_7_nl_output                         f32(1x1x30x24) (11)   
+                                                            O: pool_9_output                          f32(1x1x24) (13)      
+------ ---------------- ---- --------------- ------- ------ ----------------------------------------- --------------------- 
+6      gemm_10          10   Dense           384     1536   I: pool_9_output                          f32(1x1x24) (13)      
+                                                            W: gemm_10_weights                        f32(16x24) (9)        
+                                                            O: gemm_10_output                         f32(1x16) (8)         
+------ ---------------- ---- --------------- ------- ------ ----------------------------------------- --------------------- 
+
+
+
+Number of operations per c-layer
+------- ------ ------------------------ -------- -------------- 
+c_id    m_id   name (type)                   #op           type 
+------- ------ ------------------------ -------- -------------- 
+0       1      conv2d_1 (Conv2D)          24,016   smul_f32_f32 
+1       1      nl_1_nl (Nonlinearity)        960     op_f32_f32 
+2       4      pool_4 (Pool)                 960   smul_f32_f32 
+3       7      conv2d_7 (Conv2D)          34,584   smul_f32_f32 
+4       7      nl_7_nl (Nonlinearity)        720     op_f32_f32 
+5       9      pool_9 (Pool)                 720   smul_f32_f32 
+6       10     gemm_10 (Dense)               384   smul_f32_f32 
+------- ------ ------------------------ -------- -------------- 
+total                                     62,344 
+
+Number of operation types
+---------------- -------- ----------- 
+operation type          #           % 
+---------------- -------- ----------- 
+smul_f32_f32       60,664       97.3% 
+op_f32_f32          1,680        2.7% 
+
+Complexity report (model)
+------ ----------------- ------------------------- ------------------------- -------- 
+m_id   name              c_macc                    c_rom                     c_id     
+------ ----------------- ------------------------- ------------------------- -------- 
+1      conv2d_1          |||||||||||       40.1%   ||||||            21.1%   [0, 1]   
+4      pool_4            |                  1.5%   |                  0.0%   [2]      
+7      conv2d_7          ||||||||||||||||  56.6%   ||||||||||||||||  59.5%   [3, 4]   
+9      pool_9            |                  1.2%   |                  0.0%   [5]      
+10     arith_constant5   |                  0.6%   |||||             19.4%   [6]      
+------ ----------------- ------------------------- ------------------------- -------- 
+macc=62,344 weights=7,904 act=5,140 ram_io=0
+ 
+ Requested memory size by section - "stm32f4" target
+ ------------------------------ -------- -------- ------- ------- 
+ module                             text   rodata    data     bss 
+ ------------------------------ -------- -------- ------- ------- 
+ NetworkRuntime1010_CM4_GCC.a      9,516        0       0       0 
+ enose_network.o                     556       56   2,288     180 
+ enose_network_data.o                 48       16      88       0 
+ lib (toolchain)*                      0        0       0       0 
+ ------------------------------ -------- -------- ------- ------- 
+ RT total**                       10,120       72   2,376     180 
+ ------------------------------ -------- -------- ------- ------- 
+ weights                               0    7,904       0       0 
+ activations                           0        0       0   5,140 
+ io                                    0        0       0       0 
+ ------------------------------ -------- -------- ------- ------- 
+ TOTAL                            10,120    7,976   2,376   5,320 
+ ------------------------------ -------- -------- ------- ------- 
+ *  toolchain objects (libm/libgcc*)
+ ** RT AI runtime objects (kernels+infrastructure)
+  
+  Summary - "stm32f4" target
+  ---------------------------------------------------
+               FLASH (ro)      %*   RAM (rw)       % 
+  ---------------------------------------------------
+  RT total         12,568   61.4%      2,556   33.2% 
+  ---------------------------------------------------
+  TOTAL            20,472              7,696         
+  ---------------------------------------------------
+  *  rt/total
+
+
+Generated files (7)
+------------------------------------------------------------------------------ 
+C:\Users\12645\.stm32cubemx\enose_network_output\enose_network_data_params.h   
+C:\Users\12645\.stm32cubemx\enose_network_output\enose_network_data_params.c   
+C:\Users\12645\.stm32cubemx\enose_network_output\enose_network_data.h          
+C:\Users\12645\.stm32cubemx\enose_network_output\enose_network_data.c          
+C:\Users\12645\.stm32cubemx\enose_network_output\enose_network_config.h        
+C:\Users\12645\.stm32cubemx\enose_network_output\enose_network.h               
+C:\Users\12645\.stm32cubemx\enose_network_output\enose_network.c               

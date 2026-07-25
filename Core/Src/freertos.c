@@ -859,6 +859,12 @@ static void System_Startup_Routine(void)
   ENose_AttachWeightEngine(&sysData.enose, &g_weight_engine);
   ENoseFrameBuffer_Init();
 
+  /*
+   * 在任务开始运行前创建 Cube.AI 实例。这样 StartEnoseTask 第一次做实时
+   * 分类时网络一定已经就绪；初始化失败只会禁用动态分类，不阻塞其他功能。
+   */
+  (void)AIFeatureExtractor_Init();
+
   if (sysData.flash1.status == 1) {
     FlashMgr_Init();
 

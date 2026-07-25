@@ -25,7 +25,9 @@ from dataset import (
 
 EMBEDDING_DIMENSION = 16
 CLASS_COUNT = 3
-MODEL_VERSION = 2
+# 版本 2 已用于 MCU 集成冒烟模型。正式训练从 3 开始，确保固件自动丢弃
+# 由随机冒烟权重生成的旧 prototype，绝不能把两种特征空间混在一起。
+MODEL_VERSION = 3
 
 
 def parse_arguments() -> argparse.Namespace:

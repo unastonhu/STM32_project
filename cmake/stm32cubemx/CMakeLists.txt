@@ -15,6 +15,11 @@ set(MX_Include_Dirs
     ${CMAKE_SOURCE_DIR}/FATFS/App
     ${CMAKE_SOURCE_DIR}/USB_DEVICE/App
     ${CMAKE_SOURCE_DIR}/USB_DEVICE/Target
+    # X-CUBE-AI 10.1.0 generates these folders inside the project root.
+    # CubeMX's CMake exporter incorrectly adds "../", which points outside
+    # STM32_project and makes CMake report that enose_network.c is missing.
+    ${CMAKE_SOURCE_DIR}/Middlewares/ST/AI/Inc
+    ${CMAKE_SOURCE_DIR}/X-CUBE-AI/App
     ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Inc
     ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy
     ${CMAKE_SOURCE_DIR}/Middlewares/Third_Party/FreeRTOS/Source/include
@@ -51,6 +56,9 @@ set(MX_Application_Src
     ${CMAKE_SOURCE_DIR}/Core/Src/stm32f4xx_hal_timebase_tim.c
     ${CMAKE_SOURCE_DIR}/Core/Src/sysmem.c
     ${CMAKE_SOURCE_DIR}/Core/Src/syscalls.c
+    ${CMAKE_SOURCE_DIR}/X-CUBE-AI/App/enose_network.c
+    ${CMAKE_SOURCE_DIR}/X-CUBE-AI/App/enose_network_data.c
+    ${CMAKE_SOURCE_DIR}/X-CUBE-AI/App/enose_network_data_params.c
     ${CMAKE_SOURCE_DIR}/startup_stm32f407xx.s
 )
 
@@ -115,11 +123,16 @@ set(FatFs_Src
 # Link directories setup
 set(MX_LINK_DIRS
 
+    ${CMAKE_SOURCE_DIR}/Middlewares/ST/AI/Lib
 )
 # Project static libraries
-set(MX_LINK_LIBS 
+set(MX_LINK_LIBS
+	:NetworkRuntime1010_CM4_GCC.a
     STM32_Drivers
-    USB_Device_Library	FreeRTOS	FatFs	
+    USB_Device_Library
+	FreeRTOS
+	FatFs
+
 )
 # Interface library for includes and symbols
 add_library(stm32cubemx INTERFACE)

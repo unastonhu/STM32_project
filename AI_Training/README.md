@@ -24,29 +24,58 @@ timestamp,uptime_ms,sgp40_raw,tvoc,eco2,bme688_gas,weight,valid_mask,door_closed
 
 ## 使用
 
-建议创建独立 Python 虚拟环境，不要往 STM32CubeIDE 自带环境安装包：
+### Windows / PyCharm 环境
+
+本项目固定使用 **64 位 Python 3.12**。不要选 Python 3.14：当前固定的
+TensorFlow 2.18 没有 Python 3.14 的 Windows 安装包。
+
+如果电脑没有 Python 3.12，先安装 Python 3.12.10 x64。然后在
+`STM32_project\AI_Training` 目录打开 PowerShell，创建一个新的环境：
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r AI_Training\requirements.txt
+& "C:\Users\你的用户名\AppData\Local\Programs\Python\Python312\python.exe" `
+  -m venv .venv312
+
+.\.venv312\Scripts\python.exe -m pip install --upgrade pip
+.\.venv312\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+在 PyCharm 中选择：
+
+1. `文件 → 设置 → 项目: AI_Training → Python 解释器`。
+2. 点击 `添加解释器 → 添加本地解释器 → 现有环境`。
+3. 选择 `AI_Training\.venv312\Scripts\python.exe`。
+4. 点击确定，等待右下角索引完成。
+
+用下面命令确认解释器和三个依赖都正确：
+
+```powershell
+.\.venv312\Scripts\python.exe -c `
+  "import numpy, serial, tensorflow as tf; print(numpy.__version__, serial.VERSION, tf.__version__)"
+```
+
+正常情况下最后会看到 TensorFlow `2.18.0`。首次安装 TensorFlow 下载量较大。
+如果现在只做串口采样、暂时不训练，可以先只安装轻量依赖：
+
+```powershell
+.\.venv312\Scripts\python.exe -m pip install "numpy>=1.26,<2.1" pyserial==3.5
 ```
 
 先检查数据，不需要 TensorFlow：
 
 ```powershell
-python AI_Training\train_feature_extractor.py `
-  --input AI_Training\data `
-  --output AI_Training\artifacts `
+.\.venv312\Scripts\python.exe train_feature_extractor.py `
+  --input data `
+  --output artifacts `
   --inspect-only
 ```
 
 正式训练：
 
 ```powershell
-python AI_Training\train_feature_extractor.py `
-  --input AI_Training\data `
-  --output AI_Training\artifacts
+.\.venv312\Scripts\python.exe train_feature_extractor.py `
+  --input data `
+  --output artifacts
 ```
 
 关键输出：
@@ -56,28 +85,55 @@ python AI_Training\train_feature_extractor.py `
 - `training_report.json`：参数量、验证结果和模型 SHA-256。
 - `preprocess.json`：五通道顺序、均值、标准差和模型版本。
 
+## 硬件未完成时的集成验证
+
+FAST/SLOW 监控日志可以检查传感器是否在线、数值是否卡死，但它不是 Flash
+中的 1 Hz 训练导出。分析监控日志：
+
+```powershell
+.\.venv312\Scripts\python.exe analyze_monitor_log.py `
+  --input data\outdoor_monitor.log `
+  --output artifacts\outdoor_monitor_report.json
+```
+
+没有真实标注样本时，可以生成一个固定随机权重的 Cube.AI 冒烟测试模型：
+
+```powershell
+.\.venv312\Scripts\python.exe make_integration_smoke_model.py `
+  --output artifacts\smoke
+```
+
+生成的 `enose_integration_smoke_float32.tflite` 只用于验证 Cube.AI 转换、
+RAM/Flash、60×5 输入和16维输出调用。它没有接受虚构标签训练，不能用于
+宣称新鲜度分类准确率；配套清单会明确记录这一限制。
+
 ## 串口采样工具
 
 列出设备：
 
 ```powershell
-python AI_Training\serial_tool.py ports
+.\.venv312\Scripts\python.exe serial_tool.py ports
 ```
 
 先同步设备时间，再监听 SLOW 报文中的 `ts`：
 
 ```powershell
-python AI_Training\serial_tool.py --port COM5 sync-time --tz 8
-python AI_Training\serial_tool.py --port COM5 monitor
+.\.venv312\Scripts\python.exe serial_tool.py --port COM5 sync-time --tz 8
+.\.venv312\Scripts\python.exe serial_tool.py --port COM5 preflight --tz 8
+.\.venv312\Scripts\python.exe serial_tool.py --port COM5 monitor
 ```
+
+`preflight` 会自动发送 `START`，并检查设备时间、四组传感器状态、两片
+W25Q64、FreeRTOS 历史最低剩余 heap、样本库响应和当前特征模型版本。
+`monitor` 也会自动发送 `START`，因此不会再一直停留在 `WAITING`。
 
 把某个时间区间标成“不新鲜”，然后按返回的样本 ID 导出：
 
 ```powershell
-python AI_Training\serial_tool.py --port COM5 add `
+.\.venv312\Scripts\python.exe serial_tool.py --port COM5 add `
   --start 1784871000 --end 1784871180 --label not_fresh
 
-python AI_Training\serial_tool.py --port COM5 export --id 1
+.\.venv312\Scripts\python.exe serial_tool.py --port COM5 export --id 1
 ```
 
 可用标签名称为 `fresh`、`not_fresh`、`spoiled`。导出文件默认保存到

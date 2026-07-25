@@ -51,6 +51,9 @@ typedef struct {
     float iaq_index;
     float eco2;
     float food_spoilage_risk; // 存那个 AI 异味/硫化物检测率
+    int16_t algorithm_status;  // 最近一次 BSEC 返回码，0=正常，负数=错误
+    uint8_t accuracy;          // BSEC IAQ 精度等级 0..3
+    uint8_t reserved;
 
 } BME688_Data_t;
 

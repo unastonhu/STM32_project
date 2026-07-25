@@ -14,6 +14,12 @@ from typing import Iterator
 DEFAULT_BAUD_RATE = 115200
 DEFAULT_TIMEOUT_SECONDS = 15.0
 LABEL_NAMES = {"fresh": 0, "not_fresh": 1, "spoiled": 2}
+SENSOR_STATUS_PATHS = {
+    "SGP40": ("sgp", "s"),
+    "ENS160/AHT21": ("env", "s"),
+    "BME688": ("bme", "s"),
+    "HX711": ("hx", "s"),
+}
 
 
 def _load_serial_modules():
@@ -44,6 +50,67 @@ def parse_json_line(line: str) -> dict[str, object] | None:
     except json.JSONDecodeError:
         return None
     return value if isinstance(value, dict) else None
+
+
+def _nested_value(
+    message: dict[str, object], path: tuple[str, ...]
+) -> object | None:
+    """读取 SLOW JSON 的嵌套字段；字段缺失时返回 None。"""
+
+    value: object = message
+    for key in path:
+        if not isinstance(value, dict) or key not in value:
+            return None
+        value = value[key]
+    return value
+
+
+def evaluate_preflight(
+    slow: dict[str, object],
+    sample_stats: dict[str, object],
+    ai_status: dict[str, object],
+) -> list[tuple[str, bool, str]]:
+    """把板端响应转换为适合演示前查看的体检项目。"""
+
+    checks: list[tuple[str, bool, str]] = []
+    timestamp = int(slow.get("ts", 0))
+    checks.append(
+        (
+            "设备时间",
+            timestamp >= 1_577_836_800,
+            f"ts={timestamp}",
+        )
+    )
+
+    for name, path in SENSOR_STATUS_PATHS.items():
+        status = _nested_value(slow, path)
+        checks.append((name, status == 1, f"status={status}"))
+
+    flash_cfg = ai_status.get("flash_cfg")
+    flash_history = ai_status.get("flash_history")
+    checks.append(
+        ("配置 Flash", flash_cfg == 1, f"status={flash_cfg}")
+    )
+    checks.append(
+        ("历史 Flash", flash_history == 1, f"status={flash_history}")
+    )
+
+    heap_min = int(ai_status.get("heap_min", 0))
+    checks.append(
+        (
+            "FreeRTOS heap",
+            heap_min > 0,
+            f"历史最低剩余={heap_min} bytes",
+        )
+    )
+    checks.append(
+        (
+            "样本库响应",
+            sample_stats.get("cmd") == "SAMPLE_STATS",
+            f"活动区间={sample_stats.get('count', '?')}",
+        )
+    )
+    return checks
 
 
 class ExportCapture:
@@ -154,6 +221,24 @@ class EnoseSerialClient:
         utc_timestamp = int(time.time())
         self.send_line(f"TIME:{utc_timestamp},{timezone_hours}")
 
+    def start_stream(self) -> None:
+        """解除固件 WAITING 状态；不会改变 FAST/SLOW 的原有周期。"""
+
+        self.send_line(json_command("START"))
+
+    def wait_for_json(
+        self,
+        expected_response: str,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> dict[str, object]:
+        for line in self.lines(timeout_seconds):
+            message = parse_json_line(line)
+            if message is not None and message.get("cmd") == expected_response:
+                return message
+        raise TimeoutError(
+            f"{timeout_seconds:g} 秒内没有收到 {expected_response}"
+        )
+
     def export_sample(
         self,
         group_id: int,
@@ -239,6 +324,12 @@ def create_parser() -> argparse.ArgumentParser:
     monitor = subparsers.add_parser("monitor", help="持续显示并保存串口流")
     monitor.add_argument("--output", type=Path)
 
+    preflight = subparsers.add_parser(
+        "preflight", help="采样前检查时间、传感器、Flash 和任务状态"
+    )
+    preflight.add_argument("--tz", type=int, default=8)
+    preflight.add_argument("--timeout", type=float, default=20.0)
+
     add = subparsers.add_parser("add", help="新增时间戳样本")
     add.add_argument("--start", type=int, required=True)
     add.add_argument("--end", type=int, required=True)
@@ -297,6 +388,8 @@ def main() -> int:
                 return 0
 
             if args.action == "monitor":
+                # monitor 面向人工采样，自动 START 避免设备一直停在 WAITING。
+                client.start_stream()
                 output = (
                     args.output.open("a", encoding="utf-8")
                     if args.output
@@ -315,6 +408,31 @@ def main() -> int:
                 finally:
                     if output is not None:
                         output.close()
+
+            if args.action == "preflight":
+                # 先同步时间并取得一帧真实 SLOW，再查询两个管理模块。
+                client.start_stream()
+                # 固件 CDC 只有一个待处理接收槽，Task_USB 每秒取一次。
+                # START 未被取走前紧接着发送 TIME 会让第二包被主动丢弃。
+                time.sleep(1.5)
+                client.sync_time(args.tz)
+                slow = client.wait_for_json("SLOW", args.timeout)
+                sample_stats = client.request_json(
+                    "SAMPLE_STATS", "SAMPLE_STATS"
+                )
+                ai_status = client.request_json("AI_STATUS", "AI_STATUS")
+                checks = evaluate_preflight(
+                    slow, sample_stats, ai_status
+                )
+                for name, passed, detail in checks:
+                    print(f"[{'通过' if passed else '失败'}] {name}: {detail}")
+                print(
+                    "模型状态："
+                    f"version={ai_status.get('model', '?')}, "
+                    f"generation={ai_status.get('generation', '?')}, "
+                    f"labels={ai_status.get('labels', '?')}"
+                )
+                return 0 if all(item[1] for item in checks) else 3
 
             if args.action == "add":
                 response = client.request_json(

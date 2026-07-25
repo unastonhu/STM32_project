@@ -41,7 +41,7 @@ static void BSEC_Process_Data(const bsec_input_t *inputs, uint8_t n_inputs, cons
         {
             case BSEC_OUTPUT_IAQ:
                 sysData.bme688.iaq_index = outputs[i].signal;
-                if (outputs[i].accuracy > 0) sysData.bme688.status = 1; 
+                sysData.bme688.accuracy = outputs[i].accuracy;
                 break;
             case BSEC_OUTPUT_CO2_EQUIVALENT:
                 sysData.bme688.eco2 = outputs[i].signal;
@@ -69,11 +69,30 @@ void BME688_BSEC_Task(void *argument)
     struct bme68x_conf hw_conf;
     struct bme68x_heatr_conf heatr_conf;
 
-    bsec_init();
+    bsec_library_return_t bsec_status = bsec_init();
+    sysData.bme688.algorithm_status = (int16_t)bsec_status;
+    if (bsec_status < BSEC_OK) {
+        sysData.bme688.status = -3;
+        for (;;) {
+            osDelay(1000);
+        }
+    }
 
     // [修改 3]: 将新的食物腐败模型送入算法核心
     // ⚠️ 注意：这里的 1947 同样需要改成你实际生成的食物模型数组大小！
-    bsec_set_configuration(bsec_food_spoilage, 1947, bsec_work_buffer, sizeof(bsec_work_buffer));
+    bsec_status = bsec_set_configuration(
+        bsec_food_spoilage,
+        1947,
+        bsec_work_buffer,
+        sizeof(bsec_work_buffer)
+    );
+    sysData.bme688.algorithm_status = (int16_t)bsec_status;
+    if (bsec_status < BSEC_OK) {
+        sysData.bme688.status = -4;
+        for (;;) {
+            osDelay(1000);
+        }
+    }
 
     bsec_sensor_configuration_t requested_virtual_sensors[5];
     uint8_t n_requested = 5;
@@ -92,13 +111,31 @@ void BME688_BSEC_Task(void *argument)
     bsec_sensor_configuration_t required_sensor_settings[BSEC_MAX_PHYSICAL_SENSOR];
     uint8_t n_required = BSEC_MAX_PHYSICAL_SENSOR;
 
-    bsec_update_subscription(requested_virtual_sensors, n_requested, required_sensor_settings, &n_required);
+    bsec_status = bsec_update_subscription(
+        requested_virtual_sensors,
+        n_requested,
+        required_sensor_settings,
+        &n_required
+    );
+    sysData.bme688.algorithm_status = (int16_t)bsec_status;
+    if (bsec_status < BSEC_OK) {
+        sysData.bme688.status = -5;
+        for (;;) {
+            osDelay(1000);
+        }
+    }
 
     while (1)
     {
         int64_t time_stamp = BSEC_Get_Timestamp_ns();
 
-        bsec_sensor_control(time_stamp, &bme_conf);
+        bsec_status = bsec_sensor_control(time_stamp, &bme_conf);
+        sysData.bme688.algorithm_status = (int16_t)bsec_status;
+        if (bsec_status < BSEC_OK) {
+            sysData.bme688.status = -6;
+            osDelay(1000);
+            continue;
+        }
 
         if (bme_conf.trigger_measurement)
         {
@@ -130,13 +167,30 @@ void BME688_BSEC_Task(void *argument)
             uint8_t n_fields = 0;
 
             osMutexAcquire(i2c_mutex, osWaitForever);
-            bme68x_get_data(bme_conf.op_mode, raw_data, &n_fields, &bme_dev);
+            int8_t bme_status =
+                bme68x_get_data(
+                    bme_conf.op_mode,
+                    raw_data,
+                    &n_fields,
+                    &bme_dev
+                );
             osMutexRelease(i2c_mutex);
 
-            if (n_fields > 0)
+            if (bme_status == BME68X_OK && n_fields > 0)
             {
+                /*
+                 * 原始气阻是 Cube.AI 的输入，不应等待 IAQ accuracy>0 才有效。
+                 * 但必须同时检查 Bosch 驱动的 gas-valid 位，禁止把全 0 假数据
+                 * 标成 status=1 写入历史 Flash。
+                 */
+                bool raw_gas_valid =
+                    (raw_data[0].status & BME68X_GASM_VALID_MSK) != 0U &&
+                    raw_data[0].gas_resistance > 0.0f;
+                sysData.bme688.temp = raw_data[0].temperature;
+                sysData.bme688.hum = raw_data[0].humidity;
                 sysData.bme688.press = raw_data[0].pressure / 100.0f;
                 sysData.bme688.gas_res = raw_data[0].gas_resistance;
+                sysData.bme688.status = raw_gas_valid ? 1 : -2;
 
                 bsec_input_t bsec_inputs[BSEC_MAX_PHYSICAL_SENSOR];
                 uint8_t n_bsec_inputs = 0;
@@ -174,9 +228,16 @@ void BME688_BSEC_Task(void *argument)
                         n_bsec_inputs++;
                     }
 
-                    bsec_do_steps(bsec_inputs, n_bsec_inputs, bsec_outputs, &n_bsec_outputs);
+                    bsec_status = bsec_do_steps(
+                        bsec_inputs,
+                        n_bsec_inputs,
+                        bsec_outputs,
+                        &n_bsec_outputs
+                    );
+                    sysData.bme688.algorithm_status =
+                        (int16_t)bsec_status;
 
-                    if (n_bsec_outputs > 0)
+                    if (bsec_status >= BSEC_OK && n_bsec_outputs > 0)
                     {
                         BSEC_Process_Data(bsec_inputs, n_bsec_inputs, bsec_outputs, n_bsec_outputs);
                     }

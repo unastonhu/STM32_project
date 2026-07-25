@@ -10,6 +10,7 @@
 #include "prototype_head.h"
 #include "prototype_worker.h"
 #include "sample_library.h"
+#include "system_data.h"
 #include "usb_reporter.h"
 
 static bool DynamicCommands_ParseUInt(
@@ -205,11 +206,16 @@ bool DynamicCommands_Handle(const char *json)
         PrototypeHead_GetLastResult(&result);
         (void)USB_Reporter_QueueResponse(
             "{\"cmd\":\"AI_STATUS\",\"generation\":%lu,"
+            "\"model\":%lu,\"groups_used\":%lu,\"groups_skipped\":%lu,"
             "\"labels\":%u,\"windows\":[%lu,%lu,%lu],"
             "\"rebuilding\":%u,\"result\":%d,\"valid\":%u,"
             "\"confidence\":%.3f,\"distance\":%.3f,"
+            "\"flash_cfg\":%u,\"flash_history\":%u,"
             "\"heap_free\":%lu,\"heap_min\":%lu}\r\n",
             (unsigned long)info.generation,
+            (unsigned long)info.model_version,
+            (unsigned long)info.groups_used,
+            (unsigned long)info.groups_skipped,
             (unsigned int)info.valid_label_mask,
             (unsigned long)info.window_count[0],
             (unsigned long)info.window_count[1],
@@ -219,6 +225,8 @@ bool DynamicCommands_Handle(const char *json)
             result.valid ? 1U : 0U,
             result.confidence,
             result.nearest_distance,
+            (unsigned int)sysData.flash1.status,
+            (unsigned int)sysData.flash2.status,
             (unsigned long)xPortGetFreeHeapSize(),
             (unsigned long)xPortGetMinimumEverFreeHeapSize()
         );

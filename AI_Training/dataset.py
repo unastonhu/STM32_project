@@ -116,7 +116,9 @@ def parse_export_file(path: Path) -> list[ExportGroup]:
 
                 current = groups.get(group_id)
                 if current is None:
-                    current = ExportGroup(
+                    # 使用独立的非 Optional 变量，让 PyCharm/Pylance 明确知道
+                    # 写入字典的一定是 ExportGroup，而不是 ExportGroup | None。
+                    new_group = ExportGroup(
                         source=str(path.resolve()),
                         group_id=group_id,
                         label=label,
@@ -124,7 +126,8 @@ def parse_export_file(path: Path) -> list[ExportGroup]:
                         start_timestamp=start_timestamp,
                         end_timestamp=end_timestamp,
                     )
-                    groups[group_id] = current
+                    groups[group_id] = new_group
+                    current = new_group
                 elif (
                     current.label != label
                     or current.model_version != model_version
@@ -136,7 +139,7 @@ def parse_export_file(path: Path) -> list[ExportGroup]:
                             f"{path}:{line_number}: 导出中途元数据发生变化"
                         )
                     # 样本修改后重新导出：以后一次完整导出为准。
-                    current = ExportGroup(
+                    updated_group = ExportGroup(
                         source=str(path.resolve()),
                         group_id=group_id,
                         label=label,
@@ -144,7 +147,8 @@ def parse_export_file(path: Path) -> list[ExportGroup]:
                         start_timestamp=start_timestamp,
                         end_timestamp=end_timestamp,
                     )
-                    groups[group_id] = current
+                    groups[group_id] = updated_group
+                    current = updated_group
                 continue
 
             if line.startswith("#EXPORT_END"):

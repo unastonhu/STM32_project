@@ -4,7 +4,12 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from serial_tool import ExportCapture, json_command, label_value
+from serial_tool import (
+    ExportCapture,
+    evaluate_preflight,
+    json_command,
+    label_value,
+)
 
 
 class SerialToolTest(unittest.TestCase):
@@ -49,6 +54,50 @@ class SerialToolTest(unittest.TestCase):
         self.assertEqual(label_value("not_fresh"), 1)
         self.assertEqual(label_value("spoiled"), 2)
         self.assertEqual(label_value("2"), 2)
+
+    def test_preflight_accepts_healthy_device(self) -> None:
+        slow = {
+            "cmd": "SLOW",
+            "ts": 1_800_000_000,
+            "sgp": {"s": 1},
+            "env": {"s": 1},
+            "bme": {"s": 1},
+            "hx": {"s": 1},
+        }
+        stats = {"cmd": "SAMPLE_STATS", "count": 0}
+        status = {
+            "flash_cfg": 1,
+            "flash_history": 1,
+            "heap_min": 8192,
+        }
+
+        checks = evaluate_preflight(slow, stats, status)
+        self.assertTrue(all(passed for _, passed, _ in checks))
+
+    def test_preflight_reports_offline_sensor_and_flash(self) -> None:
+        slow = {
+            "cmd": "SLOW",
+            "ts": 1_800_000_000,
+            "sgp": {"s": 0},
+            "env": {"s": 1},
+            "bme": {"s": 1},
+            "hx": {"s": 1},
+        }
+        stats = {"cmd": "SAMPLE_STATS", "count": 0}
+        status = {
+            "flash_cfg": 1,
+            "flash_history": 0,
+            "heap_min": 8192,
+        }
+
+        failed = {
+            name
+            for name, passed, _ in evaluate_preflight(
+                slow, stats, status
+            )
+            if not passed
+        }
+        self.assertEqual(failed, {"SGP40", "历史 Flash"})
 
 
 if __name__ == "__main__":

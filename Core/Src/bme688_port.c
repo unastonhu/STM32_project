@@ -16,6 +16,7 @@
 extern osMutexId_t i2c_mutex;
 
 static I2C_HandleTypeDef *bme_i2c = NULL;
+static volatile bool s_bme688_ready = false;
 
 // BME688 硬件设备结构体
 struct bme68x_dev bme_dev;
@@ -33,7 +34,8 @@ static uint8_t dev_addr = BME68X_I2C_ADDR_HIGH;
 *@brief  I2C 读总线数据 (带互斥锁保护)
 */
 BME68X_INTF_RET_TYPE bme68x_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr) {
-uint8_t addr = (uint8_t)intf_ptr;
+/* Bosch API 传入的是地址变量的指针，必须解引用后才是 7 位 I2C 地址。 */
+uint8_t addr = *(const uint8_t *)intf_ptr;
 HAL_StatusTypeDef status;
 
 // 1. 拿钥匙锁门 (如果别人在用，这里会自动等待)
@@ -53,7 +55,8 @@ return BME68X_E_COM_FAIL;
 *@brief  I2C 写总线数据 (带互斥锁保护)
 */
 BME68X_INTF_RET_TYPE bme68x_i2c_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len, void *intf_ptr) {
-uint8_t addr = (uint8_t)intf_ptr;
+/* 与 read 保持一致，不能把 RAM 指针地址截断成 uint8_t。 */
+uint8_t addr = *(const uint8_t *)intf_ptr;
 HAL_StatusTypeDef status;
 
 // 1. 拿钥匙锁门
@@ -83,6 +86,7 @@ osDelay(ms);
 // ==========================================
 
 int8_t BME688_Port_Init(I2C_HandleTypeDef *hi2c) {
+s_bme688_ready = false;
 bme_i2c = hi2c;
 
 bme_dev.read     = bme68x_i2c_read;
@@ -99,16 +103,26 @@ bme_conf.odr     = BME68X_ODR_NONE;
 bme_conf.os_hum  = BME68X_OS_16X;
 bme_conf.os_pres = BME68X_OS_1X;
 bme_conf.os_temp = BME68X_OS_2X;
-bme68x_set_conf(&bme_conf, &bme_dev);
+if (bme68x_set_conf(&bme_conf, &bme_dev) != BME68X_OK) return -1;
 
 bme_heatr_conf.enable     = BME68X_ENABLE;
 bme_heatr_conf.heatr_temp = 300;
 bme_heatr_conf.heatr_dur  = 100;
-bme68x_set_heatr_conf(BME68X_FORCED_MODE, &bme_heatr_conf, &bme_dev);
+if (bme68x_set_heatr_conf(
+        BME68X_FORCED_MODE,
+        &bme_heatr_conf,
+        &bme_dev) != BME68X_OK) {
+    return -1;
+}
 
+s_bme688_ready = true;
 return 1;
 
 
+}
+
+bool BME688_Port_IsReady(void) {
+return s_bme688_ready;
 }
 
 int8_t BME688_Port_Read(float *temp, float *hum, float *press, float *gas_res) {

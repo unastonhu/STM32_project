@@ -118,7 +118,9 @@ else {
             "\"ds\":{\"t\":%.2f,\"s\":%d},"
             "\"sgp\":{\"v\":%ld,\"r\":%u,\"s\":%d},"
             "\"env\":{\"at\":%.1f,\"ah\":%.1f,\"tv\":%u,\"co\":%u,\"aq\":%d,\"s\":%d},"
-            "\"bme\":{\"t\":%.1f,\"h\":%.1f,\"p\":%.1f,\"g\":%.0f,\"s\":%d,\"iaq\":%.1f,\"eco2\":%.0f,\"risk\":%.3f},"
+            "\"bme\":{\"t\":%.1f,\"h\":%.1f,\"p\":%.1f,\"g\":%.0f,"
+            "\"s\":%d,\"bs\":%d,\"acc\":%u,"
+            "\"iaq\":%.1f,\"eco2\":%.0f,\"risk\":%.3f},"
             "\"mem\":{\"log_cnt\":%lu,\"sd\":%d},"
             "\"enose\":{\"mode\":%d,\"state\":%d}," 
             "\"k230\":{\"ap\":%d,\"bn\":%d,\"or\":%d},"
@@ -131,7 +133,13 @@ else {
             sysData.ds18b20.temp, sysData.ds18b20.status,
             (long)sysData.sgp40.voc_index, sysData.sgp40.raw, sysData.sgp40.status,
             sysData.env.aht_temp, sysData.env.aht_hum, sysData.env.ens_tvoc, sysData.env.ens_eco2, sysData.env.ens_aqi, sysData.env.status,
-            sysData.bme688.temp, sysData.bme688.hum, sysData.bme688.press, sysData.bme688.gas_res, sysData.bme688.status,sysData.bme688.iaq_index,sysData.bme688.eco2,sysData.bme688.food_spoilage_risk,
+            sysData.bme688.temp, sysData.bme688.hum,
+            sysData.bme688.press, sysData.bme688.gas_res,
+            sysData.bme688.status,
+            (int)sysData.bme688.algorithm_status,
+            (unsigned int)sysData.bme688.accuracy,
+            sysData.bme688.iaq_index, sysData.bme688.eco2,
+            sysData.bme688.food_spoilage_risk,
             
             g_flash_log.log_count, sysData.sdcard.status,
             

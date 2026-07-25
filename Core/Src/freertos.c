@@ -502,15 +502,21 @@ void StartI2cTask(void *argument)
   /* USER CODE BEGIN StartI2cTask */
   (void)argument;
 
-// [新增锁]: 初始化期间也会用到 I2C，为了防止和刚启动的 AI 任务撞车，这里也加上锁
+// SGP40/ENV 初始化函数直接访问 HAL，因此在外层持有总线锁。
 extern osMutexId_t i2c_mutex; // 确保能引用到外部定义的锁
 osMutexAcquire(i2c_mutex, osWaitForever);
 
 SGP40_Init(&hi2c1);
 ENV_Module_Init(&hi2c1);
-BME688_Port_Init(&hi2c1);
 
 osMutexRelease(i2c_mutex);
+
+/*
+ * BME688 驱动的 read/write 回调内部自己持有 i2c_mutex。
+ * 禁止在这里套外层锁，否则非递归 mutex 会被同一任务二次获取并永久自锁。
+ */
+sysData.bme688.status =
+    BME688_Port_Init(&hi2c1) == 1 ? 0 : -1;
 
 uint32_t task_tick = 0; // 用于心跳计数
 
@@ -518,6 +524,15 @@ uint32_t task_tick = 0; // 用于心跳计数
 for(;;)
 {
 task_tick++; // 心跳+1
+
+/*
+ * BME688 上电偶发未就绪时每 5 秒重试；不阻塞 ENS160/SGP40 的 1 Hz 采样。
+ * BSEC 任务会等待 IsReady，绝不会访问半初始化的 bme_dev。
+ */
+if (!BME688_Port_IsReady() && (task_tick % 5U) == 0U) {
+    sysData.bme688.status =
+        BME688_Port_Init(&hi2c1) == 1 ? 0 : -1;
+}
 
 // =========================================================
 //  频段 1：[ 1Hz ] - 冰箱环境精密监控
@@ -650,8 +665,15 @@ void StartBSECTask(void *argument)
 {
   /* USER CODE BEGIN StartBSECTask */
 
-  // [新增]: 直接召唤外部的 AI 主循环函数！
-  // BME688_BSEC_Task 内部自带了 while(1) 死循环，所以代码运行到这里就不会往下走了
+  /*
+   * Task_I2C 负责初始化 bme_dev。两个任务由调度器并发启动，
+   * 所以必须等初始化完成，避免 BSEC 抢先访问空设备结构。
+   */
+  while (!BME688_Port_IsReady()) {
+    osDelay(100);
+  }
+
+  // BME688_BSEC_Task 内部自带 while(1)，正常情况下不会返回。
   BME688_BSEC_Task(argument); 
 
 

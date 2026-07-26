@@ -624,13 +624,16 @@ void StartUSBTask(void *argument)
   /* USER CODE BEGIN StartUSBTask */
   /* Infinite loop */
    (void)argument;
+  TickType_t last_wake_tick = xTaskGetTickCount();
 
   // 初始化配置
-  sysData.slow_interval_ms = 30000; // 默认 30秒 慢信号档位
   sysData.ozone_is_locked = 0;
 
-   // 1. 初始化通讯部时间戳
-  USB_Reporter_Init(); 
+  /*
+   * Reporter 默认把 SLOW 设为 10 秒；FAST 和 USB 指令处理固定为 20 ms。
+   * 两个周期相互独立，不能再用 1 秒任务延时把“50 Hz FAST”降成 1 Hz。
+   */
+  USB_Reporter_Init();
 
   for(;;)
   {
@@ -645,8 +648,8 @@ void StartUSBTask(void *argument)
       //3. 呼叫通讯大队 (智能分发 JSON 快慢信号)
       USB_Reporter_Routine();   
 
-      // 4. 完美保持极高实时性，绝不阻塞！
-      osDelay(1000);
+      // 4. 固定 50 Hz，vTaskDelayUntil 可避免每轮执行耗时累积成周期漂移。
+      vTaskDelayUntil(&last_wake_tick, pdMS_TO_TICKS(20));
 
       }
       

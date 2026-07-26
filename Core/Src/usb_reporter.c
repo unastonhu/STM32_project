@@ -125,7 +125,7 @@ else {
             "\"bme\":{\"t\":%.1f,\"h\":%.1f,\"p\":%.1f,\"g\":%.0f,"
             "\"s\":%d,\"bs\":%d,\"acc\":%u,"
             "\"iaq\":%.1f,\"eco2\":%.0f,\"risk\":%.3f},"
-            "\"mem\":{\"log_cnt\":%lu,\"sd\":%d},"
+            "\"mem\":{\"f1\":%d,\"f2\":%d,\"log_cnt\":%lu,\"sd\":%d},"
             "\"enose\":{\"mode\":%d,\"state\":%d}," 
             "\"k230\":{\"ap\":%d,\"bn\":%d,\"or\":%d},"
             "\"relays\":{\"oz\":%d,\"uv\":%d,\"cf\":[%d,%d],\"df\":[%d,%d],\"tec\":[%d,%d,%d,%d]}"
@@ -145,6 +145,7 @@ else {
             sysData.bme688.iaq_index, sysData.bme688.eco2,
             sysData.bme688.food_spoilage_risk,
             
+            sysData.flash1.status, sysData.flash2.status,
             g_flash_log.log_count, sysData.sdcard.status,
             
             (int)sysData.enose.mode, (int)sysData.enose.state,

@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    enose_network.c
   * @author  AST Embedded Analytics Research Platform
-  * @date    2026-07-26T11:44:56-0400
+  * @date    2026-07-26T11:49:09-0400
   * @brief   AI Tool Automatic Code Generator for Embedded NN computing
   ******************************************************************************
   * @attention
@@ -42,7 +42,7 @@
 #endif
 
 #undef AI_TOOLS_DATE_TIME
-#define AI_TOOLS_DATE_TIME   "2026-07-26T11:44:56-0400"
+#define AI_TOOLS_DATE_TIME   "2026-07-26T11:49:09-0400"
 
 #undef AI_TOOLS_COMPILE_TIME
 #define AI_TOOLS_COMPILE_TIME    __DATE__ " " __TIME__
@@ -401,7 +401,7 @@ AI_NETWORK_OBJ_DECLARE(
     5140, NULL, NULL),
   AI_TENSOR_LIST_IO_OBJ_INIT(AI_FLAG_NONE, AI_ENOSE_NETWORK_IN_NUM, &serving_default_enose_window0_output),
   AI_TENSOR_LIST_IO_OBJ_INIT(AI_FLAG_NONE, AI_ENOSE_NETWORK_OUT_NUM, &gemm_10_output),
-  &conv2d_1_layer, 0x08cc19b5, NULL)
+  &conv2d_1_layer, 0x6ec486f6, NULL)
 
 #else
 
@@ -421,7 +421,7 @@ AI_NETWORK_OBJ_DECLARE(
   ),
   AI_TENSOR_LIST_IO_OBJ_INIT(AI_FLAG_NONE, AI_ENOSE_NETWORK_IN_NUM, &serving_default_enose_window0_output),
   AI_TENSOR_LIST_IO_OBJ_INIT(AI_FLAG_NONE, AI_ENOSE_NETWORK_OUT_NUM, &gemm_10_output),
-  &conv2d_1_layer, 0x08cc19b5, NULL)
+  &conv2d_1_layer, 0x6ec486f6, NULL)
 
 #endif	/*(AI_TOOLS_API_VERSION < AI_TOOLS_API_VERSION_1_5)*/
 
@@ -537,7 +537,7 @@ ai_bool ai_enose_network_get_info(
       .params            = AI_STRUCT_INIT,
       .activations       = AI_STRUCT_INIT,
       .n_nodes           = 0,
-      .signature         = 0x08cc19b5,
+      .signature         = 0x6ec486f6,
     };
 
     if (!ai_platform_api_get_network_report(network, &r)) return false;
@@ -585,7 +585,7 @@ ai_bool ai_enose_network_get_report(
       .map_weights       = AI_STRUCT_INIT,
       .map_activations   = AI_STRUCT_INIT,
       .n_nodes           = 0,
-      .signature         = 0x08cc19b5,
+      .signature         = 0x6ec486f6,
     };
 
     if (!ai_platform_api_get_network_report(network, &r)) return false;

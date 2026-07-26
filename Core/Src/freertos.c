@@ -109,7 +109,7 @@ static volatile uint8_t s_usb_device_ready;
 osThreadId_t Task_MonitorHandle;
 const osThreadAttr_t Task_Monitor_attributes = {
   .name = "Task_Monitor",
-  .stack_size = 256 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for Task_LED */

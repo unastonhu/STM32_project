@@ -245,8 +245,8 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
    /*
-    * 两片 W25Q64 的 CS 都是低有效，再次拉高作为 Cube 重新生成后的保护。
-    * CubeMX 中仍需把 W25_02_CS(PC5) 的 GPIO output level 配为 High。
+    * 两片 W25Q64 的 CS 都是低有效。CubeMX 已配置默认高电平，
+    * 这里再次拉高，作为以后重新生成代码时的启动保护。
     */
    HAL_GPIO_WritePin(W25_01_CS_GPIO_Port, W25_01_CS_Pin, GPIO_PIN_SET);
    HAL_GPIO_WritePin(W25_02_CS_GPIO_Port, W25_02_CS_Pin, GPIO_PIN_SET);

@@ -15,8 +15,8 @@ set(MX_Include_Dirs
     ${CMAKE_SOURCE_DIR}/FATFS/App
     ${CMAKE_SOURCE_DIR}/USB_DEVICE/App
     ${CMAKE_SOURCE_DIR}/USB_DEVICE/Target
-    ${CMAKE_SOURCE_DIR}/../Middlewares/ST/AI/Inc
-    ${CMAKE_SOURCE_DIR}/../X-CUBE-AI/App
+    ${CMAKE_SOURCE_DIR}/Middlewares/ST/AI/Inc
+    ${CMAKE_SOURCE_DIR}/X-CUBE-AI/App
     ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Inc
     ${CMAKE_SOURCE_DIR}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy
     ${CMAKE_SOURCE_DIR}/Middlewares/Third_Party/FreeRTOS/Source/include
@@ -117,7 +117,7 @@ set(FatFs_Src
 # Link directories setup
 set(MX_LINK_DIRS
 
-    ${CMAKE_SOURCE_DIR}/../Middlewares/ST/AI/Lib
+    ${CMAKE_SOURCE_DIR}/Middlewares/ST/AI/Lib
 )
 # Project static libraries
 set(MX_LINK_LIBS  

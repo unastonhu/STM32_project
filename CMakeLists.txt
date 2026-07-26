@@ -129,7 +129,12 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user sources here
+    # CubeMX 10.1.0 有时只生成 X-CUBE-AI 的头文件和库路径，却漏掉
+    # 网络包装层源文件，最终会在链接阶段报 ai_enose_network_* 未定义。
+    # 顶层 CMakeLists.txt 不会被 CubeMX 覆盖，因此在这里固定补齐。
+    X-CUBE-AI/App/enose_network.c
+    X-CUBE-AI/App/enose_network_data.c
+    X-CUBE-AI/App/enose_network_data_params.c
 )
 
 # Add include paths

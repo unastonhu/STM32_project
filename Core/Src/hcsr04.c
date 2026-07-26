@@ -6,10 +6,11 @@ static TIM_HandleTypeDef *hcsr04_htim = NULL;
 static uint32_t           hcsr04_channel = 0;
 
 // 内部状态机变量
-static uint8_t  capture_Stage = 0;    
-static uint32_t edge_RiseVal = 0;     
-static uint32_t edge_FallVal = 0;     
-static uint32_t timer_OverflowCnt = 0;
+/* 这些变量由 TIM4 中断写、Sonar 任务读，必须声明为 volatile。 */
+static volatile uint8_t  capture_Stage = 0;
+static volatile uint32_t edge_RiseVal = 0;
+static volatile uint32_t edge_FallVal = 0;
+static volatile uint32_t timer_OverflowCnt = 0;
 
 /**
  * @brief 初始化超声波测距定时器
@@ -34,7 +35,13 @@ void HCSR04_StartTrigger(GPIO_TypeDef *TRIG_PORT, uint16_t TRIG_PIN)
     {
         // 按照手册要求：给 Trig 一个大于 10us 的高电平触发信号
         HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);
-        for(volatile int i = 0; i < 200; i++); // 粗略延时，绝对够 10us
+        /*
+         * 168 MHz 下 200 次循环并不能保证 10 us。扩大到 2000 次并插入
+         * NOP，使 Debug/Release 两种优化级别下都满足 HC-SR04 最小脉宽。
+         */
+        for (volatile uint32_t i = 0U; i < 2000U; i++) {
+            __NOP();
+        }
         HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);
     }
 }
@@ -97,5 +104,19 @@ float HCSR04_GetDistance(void)
         capture_Stage = 0; // 解锁状态机
         return distance;
     }
-    return -1.0f; 
+    /*
+     * 任务已经等待了 60 ms；仍未捕获下降沿说明本次超时。
+     * 必须复位状态和边沿极性，否则 capture_Stage 会永久停在 1，
+     * 后续所有触发都被忽略。
+     */
+    if (hcsr04_htim != NULL) {
+        __HAL_TIM_SET_CAPTUREPOLARITY(
+            hcsr04_htim,
+            hcsr04_channel,
+            TIM_ICPOLARITY_RISING
+        );
+    }
+    timer_OverflowCnt = 0U;
+    capture_Stage = 0U;
+    return -1.0f;
 }

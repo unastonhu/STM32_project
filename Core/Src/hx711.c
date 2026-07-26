@@ -25,16 +25,19 @@ static void HX711_Delay(void)
 int32_t HX711_ReadRaw(void)
 {
     uint32_t count = 0;
-    uint32_t timeout = 0;
+    uint32_t wait_start = HAL_GetTick();
 
     // 1. 等待 DOUT 拉低 (表示数据准备好)
     while(HAL_GPIO_ReadPin(hx711_dout_port, hx711_dout_pin) == GPIO_PIN_SET)
     {
-        timeout++;
-        // 增加超时容忍度，防止刚上电传感器还没准备好
-        if(timeout > 200000) { 
-            return -1; // 🌟 统一返回带符号的负数 -1 作为绝对故障码
+        /*
+         * HX711 在 10 SPS 下最长约 100 ms 才有新数据。用真实时间等待
+         * 150 ms，并每毫秒让出 CPU，避免断线时忙循环拖慢其他任务。
+         */
+        if ((uint32_t)(HAL_GetTick() - wait_start) >= 150U) {
+            return -1;
         }
+        osDelay(1U);
     }
 
     // 🌟 2. 核心保护：进入临界区，禁止被 FreeRTOS 任务或中断打断！

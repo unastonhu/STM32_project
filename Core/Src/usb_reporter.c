@@ -13,6 +13,7 @@
 #include "flash_manager.h"
 #include "data_export.h"
 #include "dynamic_commands.h"
+#include "prototype_head.h"
 
 static char usb_tx_buf[1024];
 /*
@@ -113,6 +114,8 @@ else {
     }
 
     if ((current_tick - last_slow_tick) * portTICK_PERIOD_MS >= sysData.slow_interval_ms) {
+        PrototypeResult_t prototype_result;
+        PrototypeHead_GetLastResult(&prototype_result);
         
         tx_len = snprintf(usb_tx_buf, sizeof(usb_tx_buf), 
             "{\"cmd\":\"SLOW\","
@@ -126,7 +129,8 @@ else {
             "\"s\":%d,\"bs\":%d,\"acc\":%u,"
             "\"iaq\":%.1f,\"eco2\":%.0f,\"risk\":%.3f},"
             "\"mem\":{\"f1\":%d,\"f2\":%d,\"log_cnt\":%lu,\"sd\":%d},"
-            "\"enose\":{\"mode\":%d,\"state\":%d}," 
+            "\"enose\":{\"mode\":%d,\"state\":%d},"
+            "\"ai\":{\"label\":%d,\"valid\":%u,\"conf\":%.3f},"
             "\"k230\":{\"ap\":%d,\"bn\":%d,\"or\":%d},"
             "\"relays\":{\"oz\":%d,\"uv\":%d,\"cf\":[%d,%d],\"df\":[%d,%d],\"tec\":[%d,%d,%d,%d]}"
             "}\r\n", 
@@ -149,6 +153,9 @@ else {
             g_flash_log.log_count, sysData.sdcard.status,
             
             (int)sysData.enose.mode, (int)sysData.enose.state,
+            (int)prototype_result.label,
+            prototype_result.valid ? 1U : 0U,
+            prototype_result.confidence,
             sysData.k230.apple, sysData.k230.banana, sysData.k230.orange, 
             sysData.relays.ozone, sysData.relays.uv_lamp,
             sysData.relays.cool_fans[0], sysData.relays.cool_fans[1],

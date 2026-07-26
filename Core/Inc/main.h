@@ -54,6 +54,9 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
 
+/* 在普通任务上下文解析 K230 完整帧；UART 中断只负责收字节。 */
+void K230_ProcessPendingFrame(void);
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

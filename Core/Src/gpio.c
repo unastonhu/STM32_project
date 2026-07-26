@@ -59,7 +59,7 @@ void MX_GPIO_Init(void)
                           |LED_1_Pin|LED_2_Pin|ds28b20_DQ_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(W25_02_CS_GPIO_Port, W25_02_CS_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(W25_02_CS_GPIO_Port, W25_02_CS_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, ozone_Pin|uv_lamp_Pin, GPIO_PIN_SET);

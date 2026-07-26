@@ -4,6 +4,7 @@
 
 #include "main.h"
 #include "spi.h"
+#include <stdbool.h>
 
 
 
@@ -55,7 +56,8 @@ extern W25Q64_HandleTypeDef W25Q64_Devs[W25Q64_DEVICE_COUNT];// 全局声明这�
 void W25Q64_ReadData(uint8_t dev_index, uint8_t* pBuffer, uint32_t ReadAddr, uint16_t NumByteToRead);
 void W25Q64_WritePage(uint8_t dev_index, uint8_t* pBuffer, uint32_t WriteAddr, uint16_t NumByteToWrite);
 void W25Q64_EraseSector(uint8_t dev_index, uint32_t Dst_Addr);
-void W25Q64_WaitBusy(uint8_t dev_index);
+/* 最多等待 3 秒；返回 false 表示器件异常，禁止永久卡住任务。 */
+bool W25Q64_WaitBusy(uint8_t dev_index);
 
 
 

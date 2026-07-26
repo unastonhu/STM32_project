@@ -46,12 +46,15 @@ int8_t DHT11_Read_Data(uint8_t *humidity, uint8_t *temperature) {
     int8_t error_code = 0;
     uint32_t timeout = 0;
 
-    taskENTER_CRITICAL(); // 🔒 锁中断，保护极其脆弱的微秒时序
-
-    // 1. 主机发起始信号：拉低20ms，再拉高30us
+    /*
+     * 1. 20 ms 起始低电平不需要微秒精度，使用 RTOS 延时让出 CPU。
+     * 只在随后约 4 ms 的响应/40 位采样阶段关调度和受管中断。
+     */
     DHT11_Mode_Out();
     HAL_GPIO_WritePin(dht11_port, dht11_pin, GPIO_PIN_RESET);
-    DHT11_Delay_Us(20000); 
+    osDelay(20U);
+
+    taskENTER_CRITICAL();
     HAL_GPIO_WritePin(dht11_port, dht11_pin, GPIO_PIN_SET);
     DHT11_Delay_Us(30);    
 

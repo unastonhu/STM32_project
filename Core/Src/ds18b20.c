@@ -82,7 +82,7 @@ float DS18B20_GetTemp(void)
     uint16_t temp_raw;
     
     // 1. 第一次通信：检查并在场则下达转换指令
-    if (DS18B20_Init() != 0) return -100.0f; // 找不到传感器，直接返回故障码
+    if (DS18B20_Init() != 0) return -999.0f; // 与上层统一的掉线故障码
 
     DS18B20_WriteByte(0xCC); // 跳过 ROM
     DS18B20_WriteByte(0x44); // 开始温度转换
@@ -91,7 +91,7 @@ float DS18B20_GetTemp(void)
     osDelay(750);          
 
     // 3. 第二次通信：再次检查传感器是不是还活着！(防止这 750ms 内线断了)
-    if (DS18B20_Init() != 0) return -100.0f; 
+    if (DS18B20_Init() != 0) return -999.0f;
              
     DS18B20_WriteByte(0xCC); 
     DS18B20_WriteByte(0xBE); // 读取暂存器

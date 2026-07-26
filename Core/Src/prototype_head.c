@@ -53,7 +53,15 @@ typedef struct {
     bool rebuilding;
 } PrototypeHeadState_t;
 
-static PrototypeHeadState_t s_head;
+static PrototypeHeadState_t s_head = {
+    .last_result = {
+        .label = PROTOTYPE_RESULT_UNKNOWN,
+        .confidence = 0.0f,
+        .nearest_distance = 0.0f,
+        .prototype_generation = 0U,
+        .valid = false
+    }
+};
 static FlashHistoryRecord_t
     s_history_batch[PROTOTYPE_HISTORY_READ_BATCH];
 static ENoseFrame_t s_training_window[AI_FEATURE_WINDOW_FRAMES];
@@ -655,12 +663,11 @@ bool PrototypeHead_ClassifyWindow(
      */
     if (best_label < 0 ||
         result.nearest_distance > snapshot.rejection_distance) {
-        result.confidence = best_label < 0 ? 0.0f :
-            fminf(
-                1.0f,
-                (result.nearest_distance - snapshot.rejection_distance) /
-                snapshot.rejection_distance
-            );
+        /*
+         * 拒识就是“当前没有可信类别”，对外置信度统一为 0。
+         * 旧公式会让离样本库越远的 UNKNOWN 反而显示越高置信度。
+         */
+        result.confidence = 0.0f;
         goto publish_result;
     }
 

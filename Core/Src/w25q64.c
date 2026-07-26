@@ -1,5 +1,10 @@
 #include "w25q64.h"
 #include "spi.h"
+#include "cmsis_os2.h"
+
+#define W25Q64_BUSY_TIMEOUT_MS 3000U
+#define W25Q64_TOTAL_BYTES     0x800000UL
+#define W25Q64_SECTOR_COUNT    2048UL
 
 // 实例化出那个硬件阵列
 W25Q64_HandleTypeDef W25Q64_Devs[W25Q64_DEVICE_COUNT];
@@ -109,18 +114,40 @@ uint32_t W25Q64_ReadID(uint8_t dev_index)
 // ---------------------------------------------------------
 // 内部函数：读取状态寄存器，等待芯片空闲 (写操作必备)
 // ---------------------------------------------------------
-void W25Q64_WaitBusy(uint8_t dev_index)
+bool W25Q64_WaitBusy(uint8_t dev_index)
 {
     uint8_t status = 0;
+    uint32_t start_tick;
+
+    if (dev_index >= W25Q64_DEVICE_COUNT) {
+        return false;
+    }
+
     GPIO_TypeDef* port = W25Q64_Devs[dev_index].CS_Port;
     uint16_t pin       = W25Q64_Devs[dev_index].CS_Pin;
+    start_tick = HAL_GetTick();
 
     do {
         HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
         SPI_SwapByte(W25X_ReadStatusReg);
         status = SPI_SwapByte(0xFF);
         HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
-    } while ((status & 0x01) == 0x01); // 只要最后一位是 1，说明还在忙，死等
+
+        if ((status & 0x01U) == 0U) {
+            return true;
+        }
+        if ((uint32_t)(HAL_GetTick() - start_tick) >=
+            W25Q64_BUSY_TIMEOUT_MS) {
+            return false;
+        }
+
+        /* 调度器运行后主动让出 CPU；启动阶段则用 HAL tick 短等。 */
+        if (osKernelGetState() == osKernelRunning) {
+            osDelay(1U);
+        } else {
+            HAL_Delay(1U);
+        }
+    } while (true);
 }
 
 // ---------------------------------------------------------
@@ -141,6 +168,13 @@ static void W25Q64_WriteEnable(uint8_t dev_index)
 // ---------------------------------------------------------
 void W25Q64_ReadData(uint8_t dev_index, uint8_t* pBuffer, uint32_t ReadAddr, uint16_t NumByteToRead)
 {
+    if (dev_index >= W25Q64_DEVICE_COUNT ||
+        pBuffer == NULL ||
+        ReadAddr >= W25Q64_TOTAL_BYTES ||
+        NumByteToRead > W25Q64_TOTAL_BYTES - ReadAddr) {
+        return;
+    }
+
     GPIO_TypeDef* port = W25Q64_Devs[dev_index].CS_Port;
     uint16_t pin       = W25Q64_Devs[dev_index].CS_Pin;
 
@@ -161,9 +195,14 @@ void W25Q64_ReadData(uint8_t dev_index, uint8_t* pBuffer, uint32_t ReadAddr, uin
 // ---------------------------------------------------------
 void W25Q64_EraseSector(uint8_t dev_index, uint32_t Dst_Addr)
 {
+    if (dev_index >= W25Q64_DEVICE_COUNT ||
+        Dst_Addr >= W25Q64_SECTOR_COUNT ||
+        !W25Q64_WaitBusy(dev_index)) {
+        return;
+    }
+
     Dst_Addr *= 4096; // 把扇区号换算成实际物理地址
-    W25Q64_WriteEnable(dev_index); // 写使能
-    W25Q64_WaitBusy(dev_index);
+    W25Q64_WriteEnable(dev_index); // 空闲后再写使能，避免 WREN 被忙状态忽略
 
     GPIO_TypeDef* port = W25Q64_Devs[dev_index].CS_Port;
     uint16_t pin       = W25Q64_Devs[dev_index].CS_Pin;
@@ -175,7 +214,7 @@ void W25Q64_EraseSector(uint8_t dev_index, uint32_t Dst_Addr)
     SPI_SwapByte((uint8_t)Dst_Addr);
     HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
     
-    W25Q64_WaitBusy(dev_index); // 等待擦除完成 (最多可能需要 400ms)
+    (void)W25Q64_WaitBusy(dev_index);
 }
 
 // ---------------------------------------------------------
@@ -183,7 +222,18 @@ void W25Q64_EraseSector(uint8_t dev_index, uint32_t Dst_Addr)
 // ---------------------------------------------------------
 void W25Q64_WritePage(uint8_t dev_index, uint8_t* pBuffer, uint32_t WriteAddr, uint16_t NumByteToWrite)
 {
-    W25Q64_WriteEnable(dev_index); // 写使能
+    if (dev_index >= W25Q64_DEVICE_COUNT ||
+        pBuffer == NULL ||
+        NumByteToWrite == 0U ||
+        NumByteToWrite > 256U ||
+        WriteAddr >= W25Q64_TOTAL_BYTES ||
+        NumByteToWrite > W25Q64_TOTAL_BYTES - WriteAddr ||
+        ((WriteAddr & 0xFFU) + NumByteToWrite) > 256U ||
+        !W25Q64_WaitBusy(dev_index)) {
+        return;
+    }
+
+    W25Q64_WriteEnable(dev_index); // 空闲后再写使能
     
     GPIO_TypeDef* port = W25Q64_Devs[dev_index].CS_Port;
     uint16_t pin       = W25Q64_Devs[dev_index].CS_Pin;
@@ -199,5 +249,5 @@ void W25Q64_WritePage(uint8_t dev_index, uint8_t* pBuffer, uint32_t WriteAddr, u
     }
     HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
     
-    W25Q64_WaitBusy(dev_index); // 等待写入完成
+    (void)W25Q64_WaitBusy(dev_index);
 }

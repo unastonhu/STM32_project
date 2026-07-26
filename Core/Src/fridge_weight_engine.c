@@ -33,13 +33,20 @@ return engine->current_filtered_w;
 // 1. 填入滑动窗口
 engine->filter_buf[engine->filter_idx] = raw_weight;
 engine->filter_idx = (engine->filter_idx + 1) % FILTER_WINDOW_SIZE;
+if (engine->filter_count < FILTER_WINDOW_SIZE) {
+engine->filter_count++;
+}
 
-// 2. 复制窗口数据进行冒泡排序 (求中值)
+/*
+ * 2. 启动阶段只复制真实填入的样本。旧实现把尚未填满位置的 0
+ * 一起排序，最初几拍会把正常重量错误拉向 0。
+ */
 float sorted[FILTER_WINDOW_SIZE];
-memcpy(sorted, engine->filter_buf, sizeof(sorted));
+uint8_t sample_count = engine->filter_count;
+memcpy(sorted, engine->filter_buf, sizeof(float) * sample_count);
 
-for (int i = 0; i < FILTER_WINDOW_SIZE - 1; i++) {
-for (int j = 0; j < FILTER_WINDOW_SIZE - i - 1; j++) {
+for (uint8_t i = 0U; (uint8_t)(i + 1U) < sample_count; i++) {
+for (uint8_t j = 0U; (uint8_t)(j + 1U) < (uint8_t)(sample_count - i); j++) {
 if (sorted[j] > sorted[j + 1]) {
 float temp = sorted[j];
 sorted[j] = sorted[j + 1];
@@ -48,10 +55,12 @@ sorted[j + 1] = temp;
 }
 }
 
-// 3. 去掉最大值和最小值，其余求平均
+// 3. 至少 3 个样本时去掉最大/最小值；不足时直接平均
 float sum = 0.0f;
-int count = 0;
-for (int i = 1; i < FILTER_WINDOW_SIZE - 1; i++) {
+uint8_t begin = sample_count >= 3U ? 1U : 0U;
+uint8_t end = sample_count >= 3U ? sample_count - 1U : sample_count;
+uint8_t count = 0U;
+for (uint8_t i = begin; i < end; i++) {
 sum += sorted[i];
 count++;
 }
@@ -72,9 +81,11 @@ float min_error = 99999.0f;
 for (int i = 0; i < MAX_VIRTUAL_ITEMS; i++) {
 if (!engine->items[i].is_active) continue;
 
- // 1. 计算存放时长 (天)
- float elapsed_days = (float)(now_sec - engine->items[i].put_in_time) / 86400.0f;
- if (elapsed_days < 0.0f) elapsed_days = 0.0f;
+ // 1. 计算存放时长 (天)，时钟回退时按 0 处理，避免无符号下溢
+ uint32_t put_in_time = engine->items[i].put_in_time;
+ uint32_t elapsed_sec =
+     now_sec >= put_in_time ? now_sec - put_in_time : 0U;
+ float elapsed_days = (float)elapsed_sec / 86400.0f;
 
  // 2. 计算当前理论期望重量 (带有基础失水补偿)
  float expected_w = engine->items[i].initial_weight * (1.0f - BASE_DAILY_LOSS * elapsed_days);
@@ -107,13 +118,27 @@ return -1; // 未匹配到已知物品
 */
 void FridgeWeight_ProcessDoorOpen(FridgeWeightEngine_t *engine, uint8_t door_is_open, uint32_t now_sec)
 {
-if (!door_is_open) return;
-
 float cur_w = engine->current_filtered_w;
-float diff = cur_w - engine->last_stable_w;
 
-// 1. 检查物理重量是否产生跳变
-if (fabsf(diff) > STEP_DEADZONE_G) {
+/*
+ * 关门时持续跟踪稳定基准，并清除未完成动作。这样下一次真正开门后，
+ * 第一笔阶跃一定是相对“开门前重量”计算。
+ */
+if (!door_is_open) {
+engine->is_moving = 0U;
+engine->stable_counter = 0U;
+engine->last_stable_w = cur_w;
+engine->last_sample_w = cur_w;
+return;
+}
+
+float sample_delta = cur_w - engine->last_sample_w;
+
+/*
+ * 动作检测看相邻两拍是否仍在变化；动作结果才比较开门前稳定锚点。
+ * 旧逻辑始终比较旧锚点，真实拿放后差值永久大于死区，无法完成动作。
+ */
+if (fabsf(sample_delta) > MOTION_STABILITY_G) {
 engine->is_moving = 1;
 engine->stable_counter = 0; // 重置稳定计时
 } else {
@@ -121,7 +146,7 @@ engine->stable_counter = 0; // 重置稳定计时
 if (engine->is_moving) {
 engine->stable_counter++;
 
-     // 连续 5 次采样稳定 (比如约 500ms)，确认手已离开，完成一次动作捕捉！
+     // 连续 5 次 200ms 采样稳定（约 1 秒），确认手已离开
      if (engine->stable_counter >= 5) {
          engine->is_moving = 0;
          float step_value = cur_w - engine->last_stable_w;
@@ -151,6 +176,7 @@ engine->stable_counter++;
 
 
 }
+engine->last_sample_w = cur_w;
 }
 
 /*

@@ -96,16 +96,13 @@ extern TIM_HandleTypeDef htim4;
 #define ENOSE_TASK_PERIOD_MS  1000U
 #define ENOSE_LOG_INTERVAL_MS 60000U
 
-uint8_t usb_rx_buffer[64] = {0};
-uint8_t usb_rx_flag = 0;
-uint32_t usb_rx_len = 0;
-
 // [新增]: 定义 I2C 的公共钥匙（互斥锁）
 osMutexId_t i2c_mutex;
 osMutexId_t flash_mutex;
 
 extern SystemData_t sysData;
 FridgeWeightEngine_t g_weight_engine;
+static volatile uint8_t s_usb_device_ready;
 
 /* USER CODE END Variables */
 /* Definitions for Task_Monitor */
@@ -304,6 +301,13 @@ void StartMonitorTask(void *argument)
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartMonitorTask */
   (void)argument;
+  /*
+   * Cube 把 USB Device 初始化放在本普通优先级任务里，而 Task_USB 是
+   * AboveNormal。初始化完成后再发布门闩，禁止高优先级任务提前解引用
+   * 尚未创建的 CDC class data。
+   */
+  s_usb_device_ready = 1U;
+  TickType_t last_wake_tick = xTaskGetTickCount();
   /* Infinite loop */
   for(;;)
   {
@@ -311,8 +315,8 @@ void StartMonitorTask(void *argument)
     // 1. 打印系统状态
     System_PrintStatus(&sysData);
 
-    // 2. 每隔 5 秒打印一次
-    osDelay(5000);
+    // 2. 固定每 5 秒打印一次，不把本轮串口输出耗时累积到下一周期
+    vTaskDelayUntil(&last_wake_tick, pdMS_TO_TICKS(5000U));
 
 
   }
@@ -363,6 +367,7 @@ void StartSonarTask(void *argument)
   /* Infinite loop */
 
   HCSR04_Init(&htim4, TIM_CHANNEL_1); // 先把定时器句柄和通道传给超声波模块
+  TickType_t last_wake_tick = xTaskGetTickCount();
   for(;;)
   {
     
@@ -374,7 +379,13 @@ void StartSonarTask(void *argument)
 
       sysData.ir.ir1_blocked = HAL_GPIO_ReadPin(GPIOD, IR_D1_Pin);
       sysData.ir.ir2_blocked = HAL_GPIO_ReadPin(GPIOD, IR_D2_Pin);
-      sysData.ir.status = sysData.ir.ir2_blocked || sysData.ir.ir1_blocked; // 读取同时遮挡和同时不遮挡的状态码，1:都被遮挡, 0:都没被遮挡, 其他情况为中间状态；无遮挡视作开门，status = 0
+      /*
+       * 两路对射采用保守 OR 策略：任一路仍被遮挡就认为门未完全打开；
+       * 只有两路都无遮挡时 status=0，电子鼻才进入开门暂停状态。
+       * 这里不改变原来的快速采样频率和信号极性。
+       */
+      sysData.ir.status =
+          sysData.ir.ir2_blocked || sysData.ir.ir1_blocked;
 
 
      
@@ -385,23 +396,21 @@ void StartSonarTask(void *argument)
     osDelay(60); 
     
     float temp_dist  = 0.0f; // 临时变量，存储测距结果
-    // 4. 获取距离并打印
+    // 4. 获取距离；FAST/状态看板负责对外报告，不在 2 Hz 任务里刷屏
     float distance = HCSR04_GetDistance();
     if(distance > 0.0f)
     {
-        printf("[ HC-SR04 ] Distance : %.1f cm\r\n", distance);
         temp_dist  = distance;
     }
     else
     {
-        printf("[Sonar Task] Measurement Error\r\n");
         temp_dist = -1.0f; // 错误码
     }
 
     sysData.ui.distance = temp_dist;
 
-    // 5. 休息一下，开启下一次测距
-    osDelay(500);
+    // 5. 固定 500ms 周期；上面的 60ms 回波等待包含在本周期内
+    vTaskDelayUntil(&last_wake_tick, pdMS_TO_TICKS(500U));
 
   }
   /* USER CODE END StartSonarTask */
@@ -428,12 +437,19 @@ void StartHumidityTask(void *argument)
  
   // 重量引擎已在 System_Startup_Routine() 中初始化并恢复锚点，禁止在此清空
   int32_t slow_sensor_counter = 0; // 慢速传感器计数器
+  TickType_t last_wake_tick = xTaskGetTickCount();
 
   
 /* Infinite loop */
 for(;;)
 {
     uint32_t now_sec = HAL_GetTick() / 1000;
+
+    /*
+     * UART2 中断只收集 K230 字节；字符串解析放在这个 5 Hz 普通任务，
+     * 既能及时刷新视觉结果，也不会占用 FAST 所在的高优先级 USB 任务。
+     */
+    K230_ProcessPendingFrame();
 
     // =========================================================
     //  频段 A：[ 200ms 高频 (5Hz) ] - 称重滤波、消抖与开门阶跃捕获
@@ -444,14 +460,17 @@ for(;;)
         // 捕获到 HX711 底层超时/断线故障码
         sysData.hx711.status = -1; 
     } else {
-        sysData.hx711.status = 1;  
         // 1. 喂入中值+滑动窗口复合滤波器 (消除压缩机震动抖动)
+        taskENTER_CRITICAL();
         float filtered_w = FridgeWeight_UpdateFilter(&g_weight_engine, raw_w);
-        sysData.hx711.weight = (filtered_w < 0.0f) ? 0.0f : filtered_w;
 
         // 2. 实时捕获开门状态下的拿放动作 (`sysData.ir.status == 0` 为开门)
         uint8_t door_is_open = (sysData.ir.status == 0);
+        sysData.hx711.weight =
+            (filtered_w < 0.0f) ? 0.0f : filtered_w;
+        sysData.hx711.status = 1;
         FridgeWeight_ProcessDoorOpen(&g_weight_engine, door_is_open, now_sec);
+        taskEXIT_CRITICAL();
     }
 
     // =========================================================
@@ -465,26 +484,31 @@ for(;;)
 
         // 1. 智能测 DS18B20
         float t = DS18B20_GetTemp();
+        taskENTER_CRITICAL();
         if (t <= -900.0f) {
             sysData.ds18b20.status = -1;
         } else {
             sysData.ds18b20.status = 1;
             sysData.ds18b20.temp = t;
         }
+        taskEXIT_CRITICAL();
 
         // 2. 测 DHT11
         uint8_t hum = 0, temp_dht = 0;
-        sysData.dht11.status = DHT11_Read_Data(&hum, &temp_dht);
-        if(sysData.dht11.status == 1) {
+        int8_t dht_status = DHT11_Read_Data(&hum, &temp_dht);
+        taskENTER_CRITICAL();
+        sysData.dht11.status = dht_status;
+        if(dht_status == 1) {
             sysData.dht11.hum = hum;
             sysData.dht11.temp = temp_dht;
         }
+        taskEXIT_CRITICAL();
     }
 
     // =========================================================
     // 核心心跳：锁定 200ms 休眠，保证称重高频滤波响应！
     // =========================================================
-    osDelay(200);
+    vTaskDelayUntil(&last_wake_tick, pdMS_TO_TICKS(200U));
 }
   /* USER CODE END StartHumidityTask */
 }
@@ -517,7 +541,8 @@ osMutexRelease(i2c_mutex);
 sysData.bme688.status =
     BME688_Port_Init(&hi2c1) == 1 ? 0 : -1;
 
-uint32_t task_tick = 0; // 用于心跳计数
+uint32_t task_tick = 0; // 用于 BME688 初始化失败后的低频重试
+TickType_t last_wake_tick = xTaskGetTickCount();
 
 /* Infinite loop */
 for(;;)
@@ -536,47 +561,73 @@ if (!BME688_Port_IsReady() && (task_tick % 5U) == 0U) {
 // =========================================================
 //  频段 1：[ 1Hz ] - 冰箱环境精密监控
 // =========================================================
-if (task_tick % 1 == 0) 
 {
+    float env_temp = 0.0f;
+    float env_hum = 0.0f;
+    uint16_t env_tvoc = 0U;
+    uint16_t env_eco2 = 0U;
+    uint8_t env_aqi = 0U;
+    uint16_t sgp_raw = 0U;
+    int32_t sgp_voc_index = 0;
+    int8_t env_status;
+    int8_t sgp_status;
+
     // [新增锁]: 拿钥匙，准备独占 I2C！
     osMutexAcquire(i2c_mutex, osWaitForever);
 
-    // 1. 调用咱们定稿的终极函数（它内部会自动测 AHT21 并喂给 ENS160）
-    sysData.env.status = ENV_Module_ReadAll(
-        &sysData.env.aht_temp, 
-        &sysData.env.aht_hum, 
-        &sysData.env.ens_tvoc, 
-        &sysData.env.ens_eco2, 
-        &sysData.env.ens_aqi
+    /*
+     * 先写局部变量，I2C 全部完成后再一次性发布到 sysData。
+     * 这样电子鼻不会读到“温度已更新但 TVOC 仍是上一秒”的半帧数据。
+     */
+    env_status = ENV_Module_ReadAll(
+        &env_temp,
+        &env_hum,
+        &env_tvoc,
+        &env_eco2,
+        &env_aqi
     );
 
-    // 新增：秒表逻辑
-    if (sysData.env.status == -2) {
-        sysData.env.ens_warmup_sec++; // 如果在热身，秒表+1
-    } else if (sysData.env.status == 1) {
-        sysData.env.ens_warmup_sec = 0; // 如果出数据了，秒表清零
-    }
-
     // 2. 只要返回值不是 -1，就说明 AHT21 没掉线，拿到了真实的冰箱温湿度！
-    if (sysData.env.status != -1) 
+    if (env_status != -1)
     {
         // 喂 SGP40 (用新鲜出炉的真值做底层补偿)
-        sysData.sgp40.status = SGP40_GetVOCIndex(
-            sysData.env.aht_hum,   
-            sysData.env.aht_temp,  
-            &sysData.sgp40.raw,         
-            &sysData.sgp40.voc_index          
+        sgp_status = SGP40_GetVOCIndex(
+            env_hum,
+            env_temp,
+            &sgp_raw,
+            &sgp_voc_index
         );
     }
     else
     {
         //故障处理：AHT21 彻底没拿到数据
         // 既不喂假数据，也不触发补偿，防止 SGP40 算法崩溃
-        sysData.sgp40.status = -2; // 在黑板上标记：环境数据不可用
+        sgp_status = -2;
     }
 
     // [新增锁]: 操作完毕，开门交出 I2C 钥匙！
     osMutexRelease(i2c_mutex);
+
+    /* 发布完整的一秒传感器快照；临界区内不执行任何 HAL 调用。 */
+    taskENTER_CRITICAL();
+    sysData.env.aht_temp = env_temp;
+    sysData.env.aht_hum = env_hum;
+    sysData.env.ens_tvoc = env_tvoc;
+    sysData.env.ens_eco2 = env_eco2;
+    sysData.env.ens_aqi = env_aqi;
+    sysData.env.status = env_status;
+    if (env_status == -2) {
+        sysData.env.ens_warmup_sec++;
+    } else if (env_status == 1) {
+        sysData.env.ens_warmup_sec = 0U;
+    }
+
+    sysData.sgp40.status = sgp_status;
+    if (sgp_status == 1) {
+        sysData.sgp40.raw = sgp_raw;
+        sysData.sgp40.voc_index = sgp_voc_index;
+    }
+    taskEXIT_CRITICAL();
 }
 
 // =========================================================
@@ -605,7 +656,7 @@ if (task_tick >= 60)
 // 任务底层心跳：严格锁定 1 秒钟休眠
 // 所有的传感器，全靠这 1 秒钟的心跳来驱动！
 // =========================================================
-osDelay(1000);
+vTaskDelayUntil(&last_wake_tick, pdMS_TO_TICKS(1000U));
 
 
 }
@@ -625,6 +676,10 @@ void StartUSBTask(void *argument)
   /* Infinite loop */
    (void)argument;
   TickType_t last_wake_tick = xTaskGetTickCount();
+
+  while (s_usb_device_ready == 0U) {
+      osDelay(10U);
+  }
 
   // 初始化配置
   sysData.ozone_is_locked = 0;
@@ -756,8 +811,19 @@ void StartEnoseTask(void *argument)
      * 变大后推理耗时抖动原始数据时间轴。
      */
 
-    // 4. 驱动电子鼻主生命周期、红外门控与 VPD 动态评估
-    ENose_State_t current_state = ENose_Tick(&sysData.enose, frame.raw, now_ms, dt_min);
+    // 4. 只有五通道完整有效时才允许状态机吸收本帧并更新判定
+    ENose_State_t current_state;
+    if (frame.valid_mask == ENOSE_FRAME_VALID_ALL) {
+        current_state =
+            ENose_Tick(&sysData.enose, frame.raw, now_ms, dt_min);
+    } else {
+        /*
+         * 任一输入掉线时禁止把旧值/零值送入基线与规则分类。
+         * UNKNOWN 会在 Control_ENose_Tick() 中触发执行器安全关停。
+         */
+        sysData.enose.state = ENOSE_UNKNOWN;
+        current_state = ENOSE_UNKNOWN;
+    }
 
     // 5. 根据同一份电子鼻状态更新自动控制策略
     Control_ENose_Tick();
@@ -851,6 +917,11 @@ static void System_Startup_Routine(void)
 
   // 先建立确定的 RAM 默认状态，再用有效 Flash 数据覆盖
   FridgeWeight_Init(&g_weight_engine);
+  /*
+   * 两路 IR 第一次真实采样前先按“门关闭”处理，防止同优先级任务启动
+   * 顺序变化时，称重任务把上电初始重量误识别为一次开门放入动作。
+   */
+  sysData.ir.status = 1;
   ENose_Init(&sysData.enose);
   sysData.enose.scale[4] = 75.0f;
   ENose_AttachWeightEngine(&sysData.enose, &g_weight_engine);
@@ -868,6 +939,7 @@ static void System_Startup_Routine(void)
     if (FlashMgr_LoadSysState(NULL, NULL, &restored_weight_anchor)) {
       g_weight_engine.base_anchor_weight = restored_weight_anchor;
       g_weight_engine.last_stable_w = restored_weight_anchor;
+      g_weight_engine.last_sample_w = restored_weight_anchor;
     }
 
     FlashMgr_LoadEnoseClasses(&sysData.enose);

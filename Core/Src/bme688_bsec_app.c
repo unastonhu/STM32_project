@@ -13,16 +13,17 @@
 #include "bme68x.h"
 #include "bme688_port.h"
 #include "system_data.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include <stdio.h>
 
-// [修改 1]: 引入新的食物腐败模型数组
-//  注意：这里的 1947 需要改成你实际生成的食物模型数组大小！
-extern const uint8_t bsec_food_spoilage[1947];
+// BSEC 配置数组及其真实长度由 bsec_config.c 统一导出。
+extern const uint8_t bsec_food_spoilage[];
+extern const uint32_t bsec_food_spoilage_size;
 
 static uint8_t bsec_work_buffer[BSEC_MAX_WORKBUFFER_SIZE];
 
 extern struct bme68x_dev bme_dev;
-extern osMutexId_t i2c_mutex; 
 extern SystemData_t sysData;  
 
 static int64_t BSEC_Get_Timestamp_ns(void)
@@ -32,6 +33,13 @@ static int64_t BSEC_Get_Timestamp_ns(void)
 
 static void BSEC_Process_Data(const bsec_input_t *inputs, uint8_t n_inputs, const bsec_output_t *outputs, uint8_t n_outputs)
 {
+    float iaq_index = sysData.bme688.iaq_index;
+    float eco2 = sysData.bme688.eco2;
+    float temp = sysData.bme688.temp;
+    float hum = sysData.bme688.hum;
+    float food_spoilage_risk = sysData.bme688.food_spoilage_risk;
+    uint8_t accuracy = sysData.bme688.accuracy;
+
     (void)inputs;
     (void)n_inputs;
 
@@ -40,26 +48,38 @@ static void BSEC_Process_Data(const bsec_input_t *inputs, uint8_t n_inputs, cons
         switch (outputs[i].sensor_id)
         {
             case BSEC_OUTPUT_IAQ:
-                sysData.bme688.iaq_index = outputs[i].signal;
-                sysData.bme688.accuracy = outputs[i].accuracy;
+                iaq_index = outputs[i].signal;
+                accuracy = outputs[i].accuracy;
                 break;
             case BSEC_OUTPUT_CO2_EQUIVALENT:
-                sysData.bme688.eco2 = outputs[i].signal;
+                eco2 = outputs[i].signal;
                 break;
             case BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE:
-                sysData.bme688.temp = outputs[i].signal;
+                temp = outputs[i].signal;
                 break;
             case BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY:
-                sysData.bme688.hum = outputs[i].signal;
+                hum = outputs[i].signal;
                 break;
             case BSEC_OUTPUT_GAS_ESTIMATE_1:
-                // [修改 2]: 这里的数据现在代表“食物腐败变质的概率”
-                sysData.bme688.food_spoilage_risk = outputs[i].signal; 
+                food_spoilage_risk = outputs[i].signal;
                 break;
             default:
                 break;
         }
     }
+
+    /*
+     * BSEC 可能在一轮中更新多个虚拟传感器，计算完成后统一发布，
+     * 避免 USB/电子鼻任务读到一半新、一半旧的算法结果。
+     */
+    taskENTER_CRITICAL();
+    sysData.bme688.iaq_index = iaq_index;
+    sysData.bme688.eco2 = eco2;
+    sysData.bme688.temp = temp;
+    sysData.bme688.hum = hum;
+    sysData.bme688.food_spoilage_risk = food_spoilage_risk;
+    sysData.bme688.accuracy = accuracy;
+    taskEXIT_CRITICAL();
 }
 
 void BME688_BSEC_Task(void *argument)
@@ -78,11 +98,10 @@ void BME688_BSEC_Task(void *argument)
         }
     }
 
-    // [修改 3]: 将新的食物腐败模型送入算法核心
-    // ⚠️ 注意：这里的 1947 同样需要改成你实际生成的食物模型数组大小！
+    // 将食物腐败配置送入算法核心，长度不再硬编码。
     bsec_status = bsec_set_configuration(
         bsec_food_spoilage,
-        1947,
+        bsec_food_spoilage_size,
         bsec_work_buffer,
         sizeof(bsec_work_buffer)
     );
@@ -139,6 +158,10 @@ void BME688_BSEC_Task(void *argument)
 
         if (bme_conf.trigger_measurement)
         {
+            int8_t bme_status;
+            uint32_t measurement_duration_us;
+            uint32_t measurement_duration_ms;
+
             hw_conf.os_hum = bme_conf.humidity_oversampling;
             hw_conf.os_temp = bme_conf.temperature_oversampling;
             hw_conf.os_pres = bme_conf.pressure_oversampling;
@@ -151,30 +174,56 @@ void BME688_BSEC_Task(void *argument)
             heatr_conf.heatr_temp_prof = bme_conf.heater_temperature_profile;
             heatr_conf.heatr_dur_prof = bme_conf.heater_duration_profile;
             heatr_conf.profile_len = bme_conf.heater_profile_len;
-            heatr_conf.shared_heatr_dur = 140 - (bme68x_get_meas_dur(bme_conf.op_mode, &hw_conf, &bme_dev) / 1000); 
+            measurement_duration_us =
+                bme68x_get_meas_dur(bme_conf.op_mode, &hw_conf, &bme_dev);
+            measurement_duration_ms = measurement_duration_us / 1000U;
+            /*
+             * shared_heatr_dur 是无符号值。测量时间超过 140 ms 时必须
+             * 钳到 0，否则减法下溢会变成一个极长的加热/阻塞时间。
+             */
+            heatr_conf.shared_heatr_dur =
+                measurement_duration_ms < 140U
+                    ? (uint16_t)(140U - measurement_duration_ms)
+                    : 0U;
 
-            osMutexAcquire(i2c_mutex, osWaitForever);
-            bme68x_set_conf(&hw_conf, &bme_dev);
-            bme68x_set_heatr_conf(bme_conf.op_mode, &heatr_conf, &bme_dev);
-            bme68x_set_op_mode(bme_conf.op_mode, &bme_dev);
-            osMutexRelease(i2c_mutex);
+            /*
+             * Bosch read/write 回调内部已经逐次获取 i2c_mutex。
+             * 此处绝不能再套同一个非递归 mutex，否则任务会自锁。
+             */
+            bme_status = bme68x_set_conf(&hw_conf, &bme_dev);
+            if (bme_status == BME68X_OK) {
+                bme_status = bme68x_set_heatr_conf(
+                    bme_conf.op_mode,
+                    &heatr_conf,
+                    &bme_dev
+                );
+            }
+            if (bme_status == BME68X_OK) {
+                bme_status =
+                    bme68x_set_op_mode(bme_conf.op_mode, &bme_dev);
+            }
+            if (bme_status != BME68X_OK) {
+                sysData.bme688.status = -1;
+                osDelay(100U);
+                continue;
+            }
 
-            uint32_t delay_ms = (uint32_t)bme68x_get_meas_dur(bme_conf.op_mode, &hw_conf, &bme_dev) / 1000;
-            delay_ms += (heatr_conf.shared_heatr_dur);
+            uint32_t delay_ms =
+                measurement_duration_ms + heatr_conf.shared_heatr_dur;
+            if (delay_ms == 0U) {
+                delay_ms = 1U;
+            }
             osDelay(delay_ms);
 
             struct bme68x_data raw_data[3];
             uint8_t n_fields = 0;
 
-            osMutexAcquire(i2c_mutex, osWaitForever);
-            int8_t bme_status =
-                bme68x_get_data(
-                    bme_conf.op_mode,
-                    raw_data,
-                    &n_fields,
-                    &bme_dev
-                );
-            osMutexRelease(i2c_mutex);
+            bme_status = bme68x_get_data(
+                bme_conf.op_mode,
+                raw_data,
+                &n_fields,
+                &bme_dev
+            );
 
             if (bme_status == BME68X_OK && n_fields > 0)
             {
@@ -186,19 +235,21 @@ void BME688_BSEC_Task(void *argument)
                 bool raw_gas_valid =
                     (raw_data[0].status & BME68X_GASM_VALID_MSK) != 0U &&
                     raw_data[0].gas_resistance > 0.0f;
+                taskENTER_CRITICAL();
                 sysData.bme688.temp = raw_data[0].temperature;
                 sysData.bme688.hum = raw_data[0].humidity;
                 sysData.bme688.press = raw_data[0].pressure / 100.0f;
                 sysData.bme688.gas_res = raw_data[0].gas_resistance;
                 sysData.bme688.status = raw_gas_valid ? 1 : -2;
+                taskEXIT_CRITICAL();
 
                 bsec_input_t bsec_inputs[BSEC_MAX_PHYSICAL_SENSOR];
                 uint8_t n_bsec_inputs = 0;
                 bsec_output_t bsec_outputs[BSEC_NUMBER_OUTPUTS];
-                uint8_t n_bsec_outputs = BSEC_NUMBER_OUTPUTS;
 
                 for (uint8_t i = 0; i < n_fields; i++)
                 {
+                    uint8_t n_bsec_outputs = BSEC_NUMBER_OUTPUTS;
                     n_bsec_inputs = 0;
                     bsec_inputs[n_bsec_inputs].sensor_id = BSEC_INPUT_TEMPERATURE;
                     bsec_inputs[n_bsec_inputs].signal = raw_data[i].temperature;
@@ -250,10 +301,14 @@ void BME688_BSEC_Task(void *argument)
         }
         else
         {
-            uint32_t wait_ms = (uint32_t)((bme_conf.next_call - time_stamp) / 1000000);
-            if(wait_ms > 0) {
-                osDelay(wait_ms);
-            }
+            int64_t wait_ns = bme_conf.next_call - time_stamp;
+            /*
+             * next_call 已经过期时不能先转 uint32_t，否则负数会变成
+             * 数十亿毫秒。至少让出一个 tick 后立即重新询问 BSEC。
+             */
+            uint32_t wait_ms =
+                wait_ns > 0 ? (uint32_t)(wait_ns / 1000000) : 1U;
+            osDelay(wait_ms > 0U ? wait_ms : 1U);
         }
     }
 }

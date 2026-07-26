@@ -447,7 +447,7 @@ def main() -> int:
             if args.action == "preflight":
                 # 先同步时间并取得一帧真实 SLOW，再查询两个管理模块。
                 client.start_stream()
-                # 固件 CDC 只有一个待处理接收槽，Task_USB 每秒取一次。
+                # 固件 CDC 只有一个待处理接收槽；等待上一条命令被任务取走。
                 # START 未被取走前紧接着发送 TIME 会让第二包被主动丢弃。
                 time.sleep(1.5)
                 client.sync_time(args.tz)

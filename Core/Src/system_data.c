@@ -77,8 +77,10 @@ void System_PrintStatus(SystemData_t *sys) {
     printf("[ IR_SENS  ] Sensor 1 : %s | Sensor 2 : %s\r\n", 
            sys->ir.ir1_blocked ? "BLOCKED" : "CLEAR", 
            sys->ir.ir2_blocked ? "BLOCKED" : "CLEAR");
-    if (sys->ir.status == 1) printf("[ IR_SENS  ] Status   : Both Sensors Blocked!\r\n");
-    else printf("[ IR_SENS  ] Status   : Sensors Clear!\r\n");
+    if (sys->ir.status == 1)
+        printf("[ IR_SENS  ] Door     : CLOSED (at least one beam blocked)\r\n");
+    else
+        printf("[ IR_SENS  ] Door     : OPEN (both beams clear)\r\n");
 
     //  10. 新增：14路执行器状态看板 (工业级美化打印)
     printf("---------------------------- ACTUATORS & LINK ---------------------------------\r\n");

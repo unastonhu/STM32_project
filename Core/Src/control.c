@@ -1,6 +1,7 @@
 #include "control.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include <stdbool.h>
 
 // ===========================================================================
 // [私有函数] 臭氧安全死锁监控器 (禁止外部直接调用)
@@ -14,7 +15,8 @@ static void Ozone_Safety_Monitor(void)
         sysData.relays.ozone = 0; // 绝对武力压制，强制写 0
         
         // 检查是否度过了强制冷却期
-        if ((current_tick - sysData.ozone_lock_tick) >= OZONE_COOL_TIME) {
+        if ((current_tick - sysData.ozone_lock_tick) >=
+            pdMS_TO_TICKS(OZONE_COOL_TIME)) {
             sysData.ozone_is_locked = 0; // 冷却完毕，解开死锁
         }
     } 
@@ -25,7 +27,8 @@ static void Ozone_Safety_Monitor(void)
                 // 刚被开启，记录此刻时间
                 sysData.ozone_start_tick = current_tick;
             } 
-            else if ((current_tick - sysData.ozone_start_tick) >= OZONE_MAX_ON_TIME) {
+            else if ((current_tick - sysData.ozone_start_tick) >=
+                     pdMS_TO_TICKS(OZONE_MAX_ON_TIME)) {
                 // 触发报警：运行时间超过最大限制！
                 sysData.relays.ozone = 0;        // 强制关停
                 sysData.ozone_is_locked = 1;     // 挂上死锁标志
@@ -37,6 +40,27 @@ static void Ozone_Safety_Monitor(void)
             // 被安全关闭，清零运行时间
             sysData.ozone_start_tick = 0; 
         }
+    }
+}
+
+/*
+ * TEC 必须有散热风扇配合。无论自动策略还是 USB 手动命令，只要任一
+ * 制冷片开启，就强制两组散热风扇开启，防止热端积热损坏硬件。
+ */
+static void Cooler_Safety_Interlock(void)
+{
+    bool any_cooler_on = false;
+
+    for (uint8_t i = 0U; i < 4U; i++) {
+        if (sysData.relays.coolers[i] != 0U) {
+            any_cooler_on = true;
+            break;
+        }
+    }
+
+    if (any_cooler_on) {
+        sysData.relays.cool_fans[0] = 1U;
+        sysData.relays.cool_fans[1] = 1U;
     }
 }
 
@@ -67,7 +91,8 @@ static void Relay_Hardware_Sync(void)
 // ===========================================================================
 void Control_Update_Routine(void)
 {
-    // 1. 先执行逻辑防御，过滤非法/超时指令
+    // 1. 先执行制冷联锁和臭氧超时保护
+    Cooler_Safety_Interlock();
     Ozone_Safety_Monitor();
     
     // 2. 将过滤后的纯净、安全状态，一键映射到物理硬件
@@ -159,26 +184,66 @@ void Control_ENose_Tick(void)
      * 采样和 ENose_Tick() 只允许由 StartEnoseTask 执行。
      * 本函数只把已经计算好的状态映射到执行器，避免双实例、双时间轴。
      */
-    if (sysData.enose.mode == MODE_RUN) {
-        switch (sysData.enose.state) {
-                case ENOSE_FRESH:
-                    // 新鲜：维持低功耗，全部关停
-                    Control_Set_Coolers(0); Control_Set_DuctFans(0); sysData.relays.uv_lamp = 0;
-                    break;
-                case ENOSE_RIPENING:
-                    // 成熟：开启轻度保鲜
-                    Control_Set_Coolers(1); Control_Set_DuctFans(2); sysData.relays.uv_lamp = 0;
-                    break;
-                case ENOSE_OVERRIPE:
-                    // 过熟：火力全开抑制腐败，开启杀菌
-                    Control_Set_Coolers(4); Control_Set_DuctFans(4); sysData.relays.uv_lamp = 1;
-                    break;
-                case ENOSE_SPOILED:
-                    // 腐烂：疯狂排气，触发上位机报警 (臭氧由防卫逻辑单独管，此处不乱开)
-                    Control_Set_Coolers(0); Control_Set_DuctFans(4); sysData.relays.uv_lamp = 1;
-                    break;
-                default:
-                    break;
-        }
+    taskENTER_CRITICAL();
+
+    if (sysData.enose.mode != MODE_RUN ||
+        sysData.enose.state == ENOSE_UNKNOWN) {
+        /*
+         * 预热、开门恢复或任一传感器掉线时，禁止保留上一拍的输出。
+         * 这是失效安全状态：所有高功率和杀菌执行器关闭。
+         */
+        Control_Set_Coolers(0);
+        Control_Set_CoolFans(0);
+        Control_Set_DuctFans(0);
+        sysData.relays.uv_lamp = 0;
+        sysData.relays.ozone = 0;
+        taskEXIT_CRITICAL();
+        return;
     }
+
+    switch (sysData.enose.state) {
+        case ENOSE_FRESH:
+            // 新鲜：维持低功耗，全部关停
+            Control_Set_Coolers(0);
+            Control_Set_CoolFans(0);
+            Control_Set_DuctFans(0);
+            sysData.relays.uv_lamp = 0;
+            sysData.relays.ozone = 0;
+            break;
+        case ENOSE_RIPENING:
+            // 成熟：轻度制冷，同时开启 TEC 热端散热
+            Control_Set_Coolers(1);
+            Control_Set_CoolFans(4);
+            Control_Set_DuctFans(2);
+            sysData.relays.uv_lamp = 0;
+            sysData.relays.ozone = 0;
+            break;
+        case ENOSE_OVERRIPE:
+            // 过熟：加强制冷和循环，开启 UV
+            Control_Set_Coolers(4);
+            Control_Set_CoolFans(4);
+            Control_Set_DuctFans(4);
+            sysData.relays.uv_lamp = 1;
+            sysData.relays.ozone = 0;
+            break;
+        case ENOSE_SPOILED:
+            /*
+             * 腐败：排气和 UV。臭氧是否开启由 ENose_Tick 的多模态
+             * 确认结果决定，再由 Ozone_Safety_Monitor 做最终限时。
+             */
+            Control_Set_Coolers(0);
+            Control_Set_CoolFans(0);
+            Control_Set_DuctFans(4);
+            sysData.relays.uv_lamp = 1;
+            break;
+        default:
+            Control_Set_Coolers(0);
+            Control_Set_CoolFans(0);
+            Control_Set_DuctFans(0);
+            sysData.relays.uv_lamp = 0;
+            sysData.relays.ozone = 0;
+            break;
+    }
+
+    taskEXIT_CRITICAL();
 }

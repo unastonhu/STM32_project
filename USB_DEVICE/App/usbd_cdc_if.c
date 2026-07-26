@@ -41,12 +41,9 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
-extern uint8_t usb_rx_buffer[64]; // 接收缓冲区
-extern uint8_t usb_rx_flag;       // 接收完成标志位
-extern uint32_t usb_rx_len;       // 接收到的数据长度
-
 extern char usb_rx_buf[256];
 extern volatile uint8_t usb_rx_ready;
+static uint16_t usb_rx_write_len;
 
 /* USER CODE END PV */
 
@@ -281,15 +278,36 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
-    // 1. 中断里只用 HAL_GetTick 喂狗，最安全
-    sysData.last_esp32_heartbeat = HAL_GetTick(); 
+    sysData.last_esp32_heartbeat = HAL_GetTick();
 
-    // 2. 内存安全拷贝：只在任务已经处理完上一帧 (ready==0) 的情况下才接收新数据
-    if (*Len > 0 && *Len < sizeof(usb_rx_buf) - 1) {
-        if (usb_rx_ready == 0) { 
-            memcpy(usb_rx_buf, Buf, *Len);
-            usb_rx_buf[*Len] = '\0'; // 强行阻断，防止乱码
-            usb_rx_ready = 1;        // 发信号让任务去解析
+    /*
+     * USB CDC 的一个 JSON 可能被拆成多个 OUT 包。按 CR/LF 累积完整行，
+     * 而不是把每个 USB 包误当成一条完整命令。
+     * ready=1 时缓冲区归 Task_USB 所有，新包暂时丢弃以避免并发改写。
+     */
+    if (usb_rx_ready == 0U) {
+        for (uint32_t i = 0U; i < *Len; i++) {
+            uint8_t byte = Buf[i];
+
+            if (byte == '\n') {
+                if (usb_rx_write_len > 0U) {
+                    usb_rx_buf[usb_rx_write_len] = '\0';
+                    usb_rx_ready = 1U;
+                }
+                usb_rx_write_len = 0U;
+                break;
+            }
+
+            if (byte == '\r') {
+                continue;
+            }
+
+            if (usb_rx_write_len < (sizeof(usb_rx_buf) - 1U)) {
+                usb_rx_buf[usb_rx_write_len++] = (char)byte;
+            } else {
+                /* 超长命令作废，从下一行重新同步。 */
+                usb_rx_write_len = 0U;
+            }
         }
     }
 
@@ -316,6 +334,9 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
   uint8_t result = USBD_OK;
   /* USER CODE BEGIN 7 */
   USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+  if (hcdc == NULL) {
+    return USBD_FAIL;
+  }
   if (hcdc->TxState != 0){
     return USBD_BUSY;
   }

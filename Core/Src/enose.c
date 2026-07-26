@@ -268,6 +268,12 @@ default:
         calculated_state = index_to_state(e->index);   /* 还没教够 → 走指数阈值 */
     }
 
+    /*
+     * 臭氧默认关闭。只有本轮同时满足称重、环境和 BME688 多模态条件
+     * 才允许置 1，避免箱内没有物品或算法数据失效时保留上一拍输出。
+     */
+    sysData.relays.ozone = 0;
+
     // 多模态交叉验证确诊逻辑 (结合 VPD 失水倍率与 BSEC2 气味 Risk)
     if (e->weight_engine && e->weight_engine->active_count > 0) {
         // 计算 VPD 蒸气压差
@@ -284,7 +290,11 @@ default:
         float allowed_loss_sum = 0.0f;
         for (int i = 0; i < MAX_VIRTUAL_ITEMS; i++) {
             if (e->weight_engine->items[i].is_active) {
-                float elapsed_days = (float)(now_sec - e->weight_engine->items[i].put_in_time) / 86400.0f;
+                uint32_t put_in_time =
+                    e->weight_engine->items[i].put_in_time;
+                uint32_t elapsed_sec =
+                    now_sec >= put_in_time ? now_sec - put_in_time : 0U;
+                float elapsed_days = (float)elapsed_sec / 86400.0f;
                 if (elapsed_days < 0.001f) elapsed_days = 0.001f;
 
                 float vpd_factor = e->current_vpd_kpa / 0.16f; // 标准环境基准 0.16kPa
@@ -301,13 +311,14 @@ default:
         // 多模态交叉判定
         float bme_spoilage_risk = sysData.bme688.food_spoilage_risk; // 0.0 ~ 1.0
 
-        if (e->abnormal_loss_ratio > 1.8f && bme_spoilage_risk > 0.60f) {
+        if (sysData.bme688.status == 1 &&
+            sysData.bme688.algorithm_status >= 0 &&
+            e->abnormal_loss_ratio > 1.8f &&
+            bme_spoilage_risk > 0.60f) {
             // 【确诊腐败】：失重超标 1.8 倍且 BME688 异味狂响！
             calculated_state = ENOSE_SPOILED;
             sysData.relays.ozone = 1;         // 启动臭氧杀菌
             sysData.relays.duct_fans[0] = 1;  // 启动风机排风
-        } else {
-            sysData.relays.ozone = 0;
         }
     }
 

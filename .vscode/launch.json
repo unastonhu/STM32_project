@@ -12,6 +12,22 @@
             "cwd": "${workspaceFolder}",
             "preBuild": "${command:st-stm32-ide-debug-launch.build}",
             "runEntry": "main",
+            // 当前四线 SWD 接法没有依赖 NRST。Cube 扩展默认的
+            // “Connect under reset”会因 NRST 未连接而报连接目标失败。
+            "serverInterface": "SWD",
+            "serverInterfaceFrequency": "1000",
+            "serverReset": "Software system reset",
+            "serverVerify": true,
+            // Bundle Manager 同时保留了两套版本，自动选择会落到旧的
+            // GDB Server 7.13 / Programmer 2.22，并错误地强制要求升级
+            // ST-Link 固件。固定到已完成连接验证的新版工具。
+            // 适配器内部会执行 path.join(serverCwd, serverExe)，
+            // 因此这里必须只写文件名，不能重复传入完整绝对路径。
+            "serverExe": "ST-LINK_gdbserver.exe",
+            "serverCwd": "C:\\Users\\12645\\AppData\\Local\\stm32cube\\bundles\\stlink-gdbserver\\7.14.0+st.2\\bin",
+            "serverCubeProgPath": "C:\\Users\\12645\\AppData\\Local\\stm32cube\\bundles\\programmer\\2.23.0\\bin",
+            "verbose": true,
+            "serverLogFile": "${workspaceFolder}/stlinkgdbserver_log.txt",
             "imagesAndSymbols": [
                 {
                     "imageFileName": "${command:st-stm32-ide-debug-launch.get-projects-binary-from-context1}"

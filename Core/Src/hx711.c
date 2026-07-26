@@ -40,7 +40,7 @@ int32_t HX711_ReadRaw(void)
         osDelay(1U);
     }
 
-    // 🌟 2. 核心保护：进入临界区，禁止被 FreeRTOS 任务或中断打断！
+    //  2. 核心保护：进入临界区，禁止被 FreeRTOS 任务或中断打断！
     taskENTER_CRITICAL();
 
     for(int i = 0; i < 24; i++)

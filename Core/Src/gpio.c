@@ -52,14 +52,11 @@ void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, DHT11_DATA_Pin|W25_01_CS_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOC, DHT11_DATA_Pin|W25_01_CS_Pin|W25_02_CS_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, cool_fans_Pin|cool_fansA3_Pin|duct_fans_Pin|duct_fansA5_Pin
                           |LED_1_Pin|LED_2_Pin|ds28b20_DQ_Pin, GPIO_PIN_SET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(W25_02_CS_GPIO_Port, W25_02_CS_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, ozone_Pin|uv_lamp_Pin, GPIO_PIN_SET);
